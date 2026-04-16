@@ -25,8 +25,9 @@ overwrite_existing = false
 sample_rate = 16000
 channels = 1
 
-# Empty value means PortAudio default input device.
-# Use `obsidian-voice-vocab doctor --devices` to list devices.
+# Empty value means PipeWire/Pulse default input device.
+# On this machine the default source should be HyperX SoloCast; raw ALSA hw:0,0 rejects 16000 Hz.
+# Use `obsidian-voice-vocab doctor --devices` and `obsidian-voice-vocab mic-test` to verify.
 device = ""
 
 # Smaller blocks react faster; larger blocks reduce callback overhead.
@@ -38,6 +39,7 @@ active_window_seconds = 6.0
 [wake]
 # Wake phrase is recognized locally by Vosk grammar mode.
 phrase = "hello obsidian"
+phrase_variants = ["hello obsidian", "hey obsidian", "okay obsidian"]
 provider = "vosk-grammar"
 
 # Download helper installs this model by default:
@@ -69,6 +71,19 @@ max_tokens = 180
 # otherwise write blank fields with Status: llm-failed.
 fallback_dictionary = true
 
+[feedback]
+# Safe feedback path for this Hyprland setup. This intentionally does not enable swaync.
+hyprctl_notify = true
+sound = true
+
+# Keep disabled unless you deliberately re-enable a stable notification daemon.
+notify_send = false
+timeout_ms = 3500
+ready_sound = "/usr/share/sounds/freedesktop/stereo/service-login.oga"
+wake_sound = "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga"
+success_sound = "/usr/share/sounds/freedesktop/stereo/complete.oga"
+error_sound = "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+
 [words]
 # Command words ignored before selecting the first real English vocabulary word.
 command_words = [
@@ -91,4 +106,3 @@ allow_hyphenated = true
 [runtime]
 log_level = "INFO"
 log_file = "~/.local/state/obsidian-voice-vocab/daemon.log"
-

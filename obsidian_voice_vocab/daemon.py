@@ -5,6 +5,7 @@ import os
 
 from .audio import AudioRecorder, SpeechTranscriber, WakeWordListener
 from .config import AppConfig
+from .feedback import Feedback
 from .llm import build_adapter, generate_with_fallback
 from .markdown_store import DictionaryStore, VocabEntry
 from .normalizer import WordExtractionError, extract_word
@@ -21,19 +22,23 @@ class VoiceVocabularyDaemon:
     self.listener = WakeWordListener(config)
     self.transcriber = SpeechTranscriber(config)
     self.llm_adapter = build_adapter(config.llm)
+    self.feedback = Feedback(config)
 
   def run(self, once: bool = False) -> None:
     self.store.initialize()
     LOG.info("service started pid=%s vault=%s dictionary=%s", os.getpid(), self.config.vault.path, self.config.dictionary_path)
+    self.feedback.ready()
     while True:
       try:
         self.listener.wait()
+        self.feedback.wake()
         self._handle_activation()
       except KeyboardInterrupt:
         LOG.info("service stopped by keyboard interrupt")
         return
       except Exception as exc:
         LOG.exception("daemon loop error: %s", exc)
+        self.feedback.error(_short_reason(str(exc)))
       if once:
         LOG.info("single activation mode completed")
         return
@@ -83,11 +88,19 @@ class VoiceVocabularyDaemon:
         result.updated,
         result.count,
       )
+      self.feedback.success(result.word)
     except WordExtractionError as exc:
       LOG.warning("recognized speech rejected: %s", exc)
+      self.feedback.rejected(_short_reason(str(exc)))
     finally:
       try:
         wav_path.unlink(missing_ok=True)
       except OSError as exc:
         LOG.warning("failed to delete temporary audio file %s: %s", wav_path, exc)
 
+
+def _short_reason(text: str, limit: int = 120) -> str:
+  clean = " ".join(str(text or "").split())
+  if len(clean) <= limit:
+    return clean
+  return f"{clean[:limit - 3]}..."

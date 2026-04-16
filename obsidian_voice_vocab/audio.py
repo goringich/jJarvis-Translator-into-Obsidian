@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 import json
 import logging
+import math
 import queue
 import time
 import wave
@@ -61,11 +62,52 @@ class AudioRecorder:
     LOG.info("active recording saved path=%s bytes=%s", path, path.stat().st_size)
     return path
 
+  def measure_level(self, seconds: float) -> tuple[float, float, int]:
+    sd = _sounddevice()
+    audio_queue: queue.Queue[bytes] = queue.Queue()
+    sample_rate = self.config.audio.sample_rate
+    channels = self.config.audio.channels
+    blocksize = max(1, int(sample_rate * self.config.audio.block_ms / 1000))
+
+    def callback(indata, frames, time_info, status) -> None:
+      if status:
+        LOG.warning("audio input status during level test: %s", status)
+      audio_queue.put(bytes(indata))
+
+    samples = 0
+    square_sum = 0.0
+    peak = 0
+    started = time.monotonic()
+    try:
+      with sd.RawInputStream(
+        samplerate=sample_rate,
+        blocksize=blocksize,
+        dtype="int16",
+        channels=channels,
+        device=self.config.audio.device,
+        callback=callback,
+      ):
+        while time.monotonic() - started < seconds:
+          data = audio_queue.get(timeout=max(0.1, seconds))
+          values = memoryview(data).cast("h")
+          for value in values:
+            peak = max(peak, abs(int(value)))
+            square_sum += float(value) * float(value)
+          samples += len(values)
+    except Exception as exc:
+      raise AudioError(f"failed to measure microphone audio: {exc}") from exc
+
+    if samples == 0:
+      raise AudioError("microphone produced no samples during level test")
+    rms = math.sqrt(square_sum / samples)
+    return rms / 32768.0, peak / 32768.0, samples
+
 
 class WakeWordListener:
   def __init__(self, config: AppConfig):
     self.config = config
     self.phrase = _normalize_phrase(config.wake.phrase)
+    self.phrases = tuple(dict.fromkeys(_normalize_phrase(item) for item in config.wake.phrase_variants + (config.wake.phrase,)))
     if config.wake.provider != "vosk-grammar":
       raise AudioError(f"unsupported wake.provider: {config.wake.provider}")
 
@@ -77,7 +119,7 @@ class WakeWordListener:
       raise AudioError(f"Vosk wake model path does not exist: {model_path}")
 
     model = vosk.Model(str(model_path))
-    grammar = json.dumps([self.phrase, "[unk]"])
+    grammar = json.dumps([*self.phrases, "[unk]"])
     recognizer = vosk.KaldiRecognizer(model, self.config.audio.sample_rate, grammar)
     audio_queue: queue.Queue[bytes] = queue.Queue()
     blocksize = max(1, int(self.config.audio.sample_rate * self.config.audio.block_ms / 1000))
@@ -87,7 +129,7 @@ class WakeWordListener:
         LOG.warning("audio input status during wake listening: %s", status)
       audio_queue.put(bytes(indata))
 
-    LOG.info("waiting for wake phrase=%r provider=vosk-grammar device=%s", self.phrase, self.config.audio.device)
+    LOG.info("waiting for wake phrases=%s provider=vosk-grammar device=%s", self.phrases, self.config.audio.device)
     try:
       with sd.RawInputStream(
         samplerate=self.config.audio.sample_rate,
@@ -101,12 +143,12 @@ class WakeWordListener:
           data = audio_queue.get()
           if recognizer.AcceptWaveform(data):
             text = _extract_vosk_text(recognizer.Result())
-            if _contains_phrase(text, self.phrase):
+            if self._contains_wake_phrase(text):
               LOG.info("wake phrase detected text=%r", text)
               return text
           else:
             partial = _extract_vosk_partial(recognizer.PartialResult())
-            if _contains_phrase(partial, self.phrase):
+            if self._contains_wake_phrase(partial):
               LOG.info("wake phrase detected partial=%r", partial)
               recognizer.Reset()
               return partial
@@ -114,6 +156,10 @@ class WakeWordListener:
       raise
     except Exception as exc:
       raise AudioError(f"wake listener failed: {exc}") from exc
+
+  def _contains_wake_phrase(self, text: str) -> bool:
+    normalized = _normalize_phrase(text)
+    return any(phrase in normalized for phrase in self.phrases)
 
 
 class SpeechTranscriber:
@@ -232,4 +278,3 @@ def _contains_phrase(text: str, phrase: str) -> bool:
 
 def _normalize_phrase(text: str) -> str:
   return " ".join(str(text or "").lower().replace("-", " ").split())
-

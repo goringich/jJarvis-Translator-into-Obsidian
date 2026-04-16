@@ -32,6 +32,7 @@ obsidian-voice-vocab/
     cli.py              # CLI entry point
     config.py           # TOML config dataclasses
     daemon.py           # main service loop
+    feedback.py         # Hyprland notification/sound feedback
     llm.py              # Ollama/OpenAI-compatible adapters
     markdown_store.py   # deterministic Obsidian markdown storage
     normalizer.py       # transcript and word normalization
@@ -93,9 +94,13 @@ Important values:
 - `vault.path`: Obsidian vault root
 - `vault.dictionary_folder`: managed dictionary folder name
 - `wake.phrase`: default `hello obsidian`
+- `wake.phrase_variants`: extra local grammar phrases such as `hey obsidian`
 - `wake.model_path`: local Vosk model path
-- `audio.device`: empty for default microphone, or a device name/index
+- `audio.device`: input device name/index. On this machine it stays empty and PipeWire default source is set to HyperX SoloCast; raw ALSA index `0` rejects 16000 Hz.
 - `audio.active_window_seconds`: post-wake recording window
+- `feedback.hyprctl_notify`: safe Hyprland popup feedback without `swaync`
+- `feedback.sound`: short local sounds for ready/wake/success/error
+- `feedback.notify_send`: disabled by default because it can activate the notification daemon
 - `stt.whisper_model`: faster-whisper model name or local model path
 - `llm.provider`: `ollama`, `openai-compatible`, `openclaw`, or `none`
 - `llm.endpoint`: local endpoint URL
@@ -114,6 +119,18 @@ Check dependencies and audio devices:
 
 ```bash
 .venv/bin/obsidian-voice-vocab --foreground doctor --devices
+```
+
+Check that the configured microphone is producing signal:
+
+```bash
+.venv/bin/obsidian-voice-vocab --foreground mic-test --seconds 3
+```
+
+Test local feedback without using the notification daemon:
+
+```bash
+.venv/bin/obsidian-voice-vocab --foreground feedback-test
 ```
 
 Run daemon in foreground:
@@ -185,6 +202,17 @@ File log:
 ```bash
 tail -f ~/.local/state/obsidian-voice-vocab/daemon.log
 ```
+
+## Desktop Feedback
+
+This machine previously disabled `swaync` through session startup guard files after it appeared near Hyprland/NVIDIA crash windows. The service therefore does not re-enable `swaync` and keeps `notify-send` disabled by default.
+
+Feedback uses:
+
+- `hyprctl notify` for Hyprland-native popups
+- `pw-play` or `paplay` for local sound cues
+
+The service emits feedback when it starts listening, detects the wake phrase, rejects speech, hits an error, or writes a word successfully.
 
 ## Markdown Format
 
@@ -258,4 +286,3 @@ Optional cleanup:
 ```bash
 ./scripts/uninstall.sh --remove-venv --remove-config
 ```
-

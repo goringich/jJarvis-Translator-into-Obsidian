@@ -5,9 +5,10 @@ import argparse
 import logging
 import sys
 
-from .audio import AudioError, list_audio_devices
+from .audio import AudioError, AudioRecorder, list_audio_devices
 from .config import AppConfig, default_config_path
 from .daemon import VoiceVocabularyDaemon
+from .feedback import Feedback
 from .llm import build_adapter, generate_with_fallback
 from .logging_setup import setup_logging
 from .markdown_store import DictionaryStore, VocabEntry
@@ -46,6 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
   doctor_parser.add_argument("--devices", action="store_true", help="Print PortAudio input/output device list.")
   doctor_parser.set_defaults(func=cmd_doctor)
 
+  mic_parser = subparsers.add_parser("mic-test", help="Measure configured microphone level for a few seconds.")
+  mic_parser.add_argument("--seconds", type=float, default=3.0, help="Measurement duration.")
+  mic_parser.set_defaults(func=cmd_mic_test)
+
+  feedback_parser = subparsers.add_parser("feedback-test", help="Show safe desktop feedback without enabling swaync.")
+  feedback_parser.set_defaults(func=cmd_feedback_test)
+
   add_parser = subparsers.add_parser("add-word", help="Add or update one word without microphone.")
   add_parser.add_argument("text", help="Word or short phrase; the first valid English word is used.")
   add_parser.add_argument("--translation", default="", help="Manual Russian translation. Skips LLM only if --example is also supplied or --no-generate is used.")
@@ -72,9 +80,12 @@ def cmd_doctor(args: argparse.Namespace, config: AppConfig) -> int:
   store = DictionaryStore(config)
   LOG.info("config loaded vault=%s dictionary=%s", config.vault.path, config.dictionary_path)
   LOG.info("dictionary folder exists=%s", config.dictionary_path.exists())
-  LOG.info("wake provider=%s phrase=%r model_path=%s exists=%s", config.wake.provider, config.wake.phrase, config.wake.model_path, config.wake.model_path.exists())
+  LOG.info("audio device=%s sample_rate=%s channels=%s", config.audio.device, config.audio.sample_rate, config.audio.channels)
+  wake_phrases = tuple(dict.fromkeys((*config.wake.phrase_variants, config.wake.phrase)))
+  LOG.info("wake provider=%s phrases=%s model_path=%s exists=%s", config.wake.provider, wake_phrases, config.wake.model_path, config.wake.model_path.exists())
   LOG.info("stt provider=%s whisper_model=%s", config.stt.provider, config.stt.whisper_model)
   LOG.info("llm provider=%s endpoint=%s model=%s", config.llm.provider, config.llm.endpoint, config.llm.model)
+  LOG.info("feedback hyprctl=%s sound=%s notify_send=%s", config.feedback.hyprctl_notify, config.feedback.sound, config.feedback.notify_send)
   missing = []
   try:
     import sounddevice
@@ -101,6 +112,32 @@ def cmd_doctor(args: argparse.Namespace, config: AppConfig) -> int:
     for item in missing:
       LOG.error("missing dependency: %s", item)
     return 2
+  return 0
+
+
+def cmd_mic_test(args: argparse.Namespace, config: AppConfig) -> int:
+  seconds = max(0.5, float(args.seconds))
+  rms, peak, samples = AudioRecorder(config).measure_level(seconds)
+  LOG.info(
+    "microphone level device=%s seconds=%.1f samples=%s rms=%.4f peak=%.4f",
+    config.audio.device,
+    seconds,
+    samples,
+    rms,
+    peak,
+  )
+  print(f"device={config.audio.device} seconds={seconds:.1f} samples={samples} rms={rms:.4f} peak={peak:.4f}")
+  if peak < 0.002:
+    LOG.warning("microphone signal is very low; check selected input device, mute state, and PipeWire routing")
+    return 3
+  return 0
+
+
+def cmd_feedback_test(args: argparse.Namespace, config: AppConfig) -> int:
+  feedback = Feedback(config)
+  feedback.ready()
+  feedback.wake()
+  feedback.success("example")
   return 0
 
 
@@ -156,4 +193,3 @@ def cmd_daemon(args: argparse.Namespace, config: AppConfig) -> int:
 
 if __name__ == "__main__":
   sys.exit(main())
-

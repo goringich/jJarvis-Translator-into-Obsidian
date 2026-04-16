@@ -32,8 +32,21 @@ class AudioConfig:
 
 
 @dataclass(frozen=True)
+class FeedbackConfig:
+  hyprctl_notify: bool = True
+  sound: bool = True
+  notify_send: bool = False
+  timeout_ms: int = 3500
+  ready_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/service-login.oga")
+  wake_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/message-new-instant.oga")
+  success_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/complete.oga")
+  error_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/dialog-warning.oga")
+
+
+@dataclass(frozen=True)
 class WakeConfig:
   phrase: str = "hello obsidian"
+  phrase_variants: tuple[str, ...] = ("hello obsidian", "hey obsidian", "okay obsidian")
   provider: str = "vosk-grammar"
   model_path: Path = Path("~/.local/share/obsidian-voice-vocab/models/vosk-model-small-en-us-0.15")
 
@@ -90,6 +103,7 @@ class AppConfig:
   vault: VaultConfig = field(default_factory=VaultConfig)
   duplicates: DuplicateConfig = field(default_factory=DuplicateConfig)
   audio: AudioConfig = field(default_factory=AudioConfig)
+  feedback: FeedbackConfig = field(default_factory=FeedbackConfig)
   wake: WakeConfig = field(default_factory=WakeConfig)
   stt: SttConfig = field(default_factory=SttConfig)
   llm: LlmConfig = field(default_factory=LlmConfig)
@@ -124,8 +138,19 @@ class AppConfig:
         block_ms=_int(raw, "audio", "block_ms", default=AudioConfig.block_ms),
         active_window_seconds=_float(raw, "audio", "active_window_seconds", default=AudioConfig.active_window_seconds),
       ),
+      feedback=FeedbackConfig(
+        hyprctl_notify=_bool(raw, "feedback", "hyprctl_notify", default=FeedbackConfig.hyprctl_notify),
+        sound=_bool(raw, "feedback", "sound", default=FeedbackConfig.sound),
+        notify_send=_bool(raw, "feedback", "notify_send", default=FeedbackConfig.notify_send),
+        timeout_ms=_int(raw, "feedback", "timeout_ms", default=FeedbackConfig.timeout_ms),
+        ready_sound=_path(raw, "feedback", "ready_sound", default=FeedbackConfig.ready_sound),
+        wake_sound=_path(raw, "feedback", "wake_sound", default=FeedbackConfig.wake_sound),
+        success_sound=_path(raw, "feedback", "success_sound", default=FeedbackConfig.success_sound),
+        error_sound=_path(raw, "feedback", "error_sound", default=FeedbackConfig.error_sound),
+      ),
       wake=WakeConfig(
         phrase=_string(raw, "wake", "phrase", default=WakeConfig.phrase).lower(),
+        phrase_variants=tuple(item.lower() for item in _list(raw, "wake", "phrase_variants", default=list(WakeConfig.phrase_variants))),
         provider=_string(raw, "wake", "provider", default=WakeConfig.provider),
         model_path=_path(raw, "wake", "model_path", default=WakeConfig.model_path),
       ),
@@ -165,8 +190,19 @@ class AppConfig:
       ),
       duplicates=self.duplicates,
       audio=self.audio,
+      feedback=FeedbackConfig(
+        hyprctl_notify=self.feedback.hyprctl_notify,
+        sound=self.feedback.sound,
+        notify_send=self.feedback.notify_send,
+        timeout_ms=self.feedback.timeout_ms,
+        ready_sound=_expand(self.feedback.ready_sound),
+        wake_sound=_expand(self.feedback.wake_sound),
+        success_sound=_expand(self.feedback.success_sound),
+        error_sound=_expand(self.feedback.error_sound),
+      ),
       wake=WakeConfig(
         phrase=self.wake.phrase.lower(),
+        phrase_variants=tuple(item.lower() for item in self.wake.phrase_variants),
         provider=self.wake.provider,
         model_path=_expand(self.wake.model_path),
       ),
@@ -235,4 +271,3 @@ def _optional_device(value: Any) -> str | int | None:
   if text.isdigit():
     return int(text)
   return text
-
