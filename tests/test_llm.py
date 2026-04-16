@@ -26,6 +26,16 @@ class LlmParsingTests(unittest.TestCase):
     self.assertEqual(generated.example, "I learned the word sustainable today.")
     self.assertEqual(generated.status, "llm-fallback")
 
+  def test_uses_fallback_translation_when_example_is_rejected(self) -> None:
+    generated = parse_model_response(
+      "reliable",
+      '{"translation":"уставный","example":"Я сегодня узнал слово уставный."}',
+    )
+
+    self.assertEqual(generated.translation, "надёжный")
+    self.assertEqual(generated.example, "I learned the word reliable today.")
+    self.assertEqual(generated.status, "llm-fallback")
+
 
 if __name__ == "__main__":
   unittest.main()

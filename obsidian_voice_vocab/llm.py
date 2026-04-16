@@ -130,10 +130,8 @@ def build_prompt(word: str) -> str:
   return (
     f"English word: {word}\n"
     "Return JSON only, exactly with these keys:\n"
-    "{{"
-    '"translation":"<short Russian translation in Cyrillic>",'
-    f'"example":"<one short natural B1-B2 English sentence containing the exact word {word}>"'
-    "}}"
+    f'{{"translation":"короткий перевод","example":"I learned the word {word} today."}}\n'
+    f'The example sentence must contain the exact English word "{word}".'
   )
 
 
@@ -154,6 +152,7 @@ def parse_model_response(word: str, content: str) -> GeneratedEntry:
   if data is None:
     raise LlmError(f"could not parse model response: {content[:160]!r}")
 
+  fallback = FALLBACK_TRANSLATIONS.get(word.lower(), "")
   translation = _clean_field(data.get("translation", ""))
   example = _clean_field(data.get("example", ""))
   status = "generated"
@@ -170,10 +169,13 @@ def parse_model_response(word: str, content: str) -> GeneratedEntry:
     status = "llm-partial" if translation else "llm-failed"
 
   if not translation:
-    fallback = FALLBACK_TRANSLATIONS.get(word.lower(), "")
     if fallback:
       translation = fallback
       status = "llm-fallback"
+
+  if fallback and status in ("llm-partial", "llm-failed"):
+    translation = fallback
+    status = "llm-fallback"
 
   if not example:
     example = fallback_example(word)
