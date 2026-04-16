@@ -41,7 +41,7 @@ class OllamaAdapter(BaseLlmAdapter):
 
   def generate(self, word: str) -> GeneratedEntry:
     last_error: Exception | None = None
-    for prompt in (build_prompt(word), build_retry_prompt(word)):
+    for prompt in (build_prompt(word), build_retry_prompt(word), build_final_retry_prompt(word)):
       payload = {
         "model": self.config.model,
         "stream": False,
@@ -54,8 +54,9 @@ class OllamaAdapter(BaseLlmAdapter):
           {
             "role": "system",
             "content": (
-              "Return only valid JSON. The translation value must be Russian. "
-              "The example value must be one simple English sentence."
+              "You are a strict bilingual vocabulary generator. Return only valid JSON. "
+              "The translation value must be short Russian text. "
+              "The example value must be one natural English context sentence."
             ),
           },
           {
@@ -129,9 +130,11 @@ def generate_with_fallback(adapter: BaseLlmAdapter, config: LlmConfig, word: str
 def build_prompt(word: str) -> str:
   return (
     f"English word: {word}\n"
-    "Return JSON only, exactly with these keys:\n"
-    f'{{"translation":"короткий перевод","example":"I learned the word {word} today."}}\n'
-    f'The example sentence must contain the exact English word "{word}".'
+    "Return JSON only with exactly these keys: translation, example.\n"
+    "translation: a short Russian translation in Cyrillic, no English letters.\n"
+    f'example: one natural B1-B2 English sentence that uses "{word}" in real context.\n'
+    "Do not explain the word. Do not write about learning, studying, saying, or using the word as a word.\n"
+    f'Good format: {{"translation":"короткий перевод","example":"A clear sentence with {word} in everyday context."}}'
   )
 
 
@@ -141,8 +144,21 @@ def build_retry_prompt(word: str) -> str:
     f"Слово: {word}\n"
     "Ответь только JSON-объектом без markdown и без пояснений.\n"
     "Поле translation: короткий перевод на русский язык кириллицей.\n"
-    f"Поле example: одно короткое естественное английское предложение со словом {word}.\n"
-    f'Формат: {{"translation":"перевод","example":"I use the word {word} in a sentence."}}'
+    f"Поле example: одно короткое естественное английское предложение уровня B1-B2 со словом {word} в жизненном контексте.\n"
+    "Нельзя писать фразы про изучение слова или само слово как объект.\n"
+    f'Формат: {{"translation":"перевод","example":"The team made a {word} plan for the project."}}'
+  )
+
+
+def build_final_retry_prompt(word: str) -> str:
+  return (
+    f'Only JSON: {{"translation":"...","example":"..."}}\n'
+    f'Word: "{word}".\n'
+    "Rules:\n"
+    "- translation is Russian Cyrillic only.\n"
+    f'- example is one English sentence containing "{word}".\n'
+    "- example must show meaning through context.\n"
+    "- do not mention vocabulary, learning, studying, saying, translating, or the word itself."
   )
 
 
@@ -165,6 +181,10 @@ def parse_model_response(word: str, content: str) -> GeneratedEntry:
     status = "llm-partial"
   if example and not _example_contains_word(word, example):
     LOG.warning("Model example does not contain exact word %s: %s", word, example)
+    example = ""
+    status = "llm-partial" if translation else "llm-failed"
+  if example and not _looks_like_english_example(word, example):
+    LOG.warning("Model example is not a useful English context sentence for %s: %s", word, example)
     example = ""
     status = "llm-partial" if translation else "llm-failed"
 
@@ -193,7 +213,10 @@ def fallback_for_word(word: str, status: str) -> GeneratedEntry:
 
 
 def fallback_example(word: str) -> str:
-  return f"I learned the word {word} today."
+  example = FALLBACK_EXAMPLES.get(word.lower())
+  if example:
+    return example
+  return f"This example sentence needs a better context for {word}."
 
 
 def _post_json(url: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
@@ -279,6 +302,26 @@ def _looks_like_russian_translation(text: str) -> bool:
   return not bool(re.search(r"[A-Za-z]", text))
 
 
+def _looks_like_english_example(word: str, text: str) -> bool:
+  if re.search(r"[А-Яа-яЁё]", text):
+    return False
+  if not re.search(r"[A-Za-z]", text):
+    return False
+  if not re.search(r"[.!?]$", text.strip()):
+    return False
+  lowered = text.lower()
+  banned_patterns = (
+    rf"\bthe word {re.escape(word.lower())}\b",
+    rf"\bword {re.escape(word.lower())}\b",
+    r"\blearn(?:ed|ing)?\b",
+    r"\bstud(?:y|ied|ying)\b",
+    r"\btranslate(?:d|s|ing)?\b",
+    r"\bvocabulary\b",
+    r"\bdictionary\b",
+  )
+  return not any(re.search(pattern, lowered) for pattern in banned_patterns)
+
+
 FALLBACK_TRANSLATIONS = {
   "ability": "способность",
   "able": "способный",
@@ -328,4 +371,44 @@ FALLBACK_TRANSLATIONS = {
   "useful": "полезный",
   "voice": "голос",
   "word": "слово",
+}
+
+
+FALLBACK_EXAMPLES = {
+  "ability": "Her ability to stay calm helped the whole team.",
+  "accept": "He decided to accept the new job offer.",
+  "achieve": "They worked hard to achieve their goal.",
+  "adapt": "Small companies must adapt quickly to change.",
+  "advice": "She gave me useful advice before the interview.",
+  "agree": "I agree with your plan for the weekend.",
+  "allow": "This app will allow users to save notes faster.",
+  "appear": "Dark clouds began to appear over the city.",
+  "avoid": "Try to avoid making the same mistake twice.",
+  "basic": "The course starts with basic grammar rules.",
+  "build": "They want to build a small house near the lake.",
+  "clear": "Please give me a clear answer by Friday.",
+  "compare": "We need to compare both options before we decide.",
+  "complete": "She stayed late to complete the report.",
+  "create": "The designer will create a new logo for the cafe.",
+  "daily": "A daily walk can improve your mood.",
+  "decide": "We must decide where to meet tonight.",
+  "develop": "The team will develop a safer payment system.",
+  "difficult": "This question is difficult, but I can solve it.",
+  "elephant": "The elephant walked slowly across the dry grass.",
+  "example": "This example shows how the rule works.",
+  "explain": "Can you explain the problem in simple words?",
+  "focus": "I cannot focus when the room is noisy.",
+  "improve": "Regular practice can improve your pronunciation.",
+  "include": "The price should include breakfast and coffee.",
+  "learn": "Children learn new habits from their parents.",
+  "manage": "She can manage a large project under pressure.",
+  "natural": "His speech sounded natural and relaxed.",
+  "practice": "Daily practice made her more confident.",
+  "prepare": "We need to prepare dinner before the guests arrive.",
+  "reliable": "A reliable car is important for long trips.",
+  "simple": "The teacher gave a simple explanation.",
+  "stable": "The ladder must be stable before you climb it.",
+  "sustainable": "Sustainable farming protects the soil for future crops.",
+  "useful": "This tool is useful for quick calculations.",
+  "voice": "Her voice sounded calm during the call.",
 }

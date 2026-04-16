@@ -23,7 +23,7 @@ class LlmParsingTests(unittest.TestCase):
     )
 
     self.assertEqual(generated.translation, "устойчивый")
-    self.assertEqual(generated.example, "I learned the word sustainable today.")
+    self.assertEqual(generated.example, "Sustainable farming protects the soil for future crops.")
     self.assertEqual(generated.status, "llm-fallback")
 
   def test_uses_fallback_translation_when_example_is_rejected(self) -> None:
@@ -33,7 +33,17 @@ class LlmParsingTests(unittest.TestCase):
     )
 
     self.assertEqual(generated.translation, "надёжный")
-    self.assertEqual(generated.example, "I learned the word reliable today.")
+    self.assertEqual(generated.example, "A reliable car is important for long trips.")
+    self.assertEqual(generated.status, "llm-fallback")
+
+  def test_rejects_meta_learning_examples(self) -> None:
+    generated = parse_model_response(
+      "reliable",
+      '{"translation":"надёжный","example":"I learned the word reliable today."}',
+    )
+
+    self.assertEqual(generated.translation, "надёжный")
+    self.assertEqual(generated.example, "A reliable car is important for long trips.")
     self.assertEqual(generated.status, "llm-fallback")
 
 

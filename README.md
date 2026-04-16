@@ -8,7 +8,7 @@ The service listens for `Hello Obsidian` with a lightweight local Vosk grammar r
 
 - Wake word: Vosk grammar mode, because it is offline, CPU-light, Linux-friendly, and can recognize the exact phrase `hello obsidian` without training a custom wake-word model.
 - Active STT: faster-whisper, because Whisper quality is better for the short post-wake window and the model is loaded lazily.
-- LLM: adapter-based local HTTP integration. The default is Ollama with `qwen2.5:1.5b`; OpenAI-compatible endpoints are also supported.
+- LLM: adapter-based local HTTP integration. The default is Ollama with `gpt-oss:20b`; OpenAI-compatible endpoints are also supported.
 - Service model: `systemd --user`, because this is a desktop microphone workflow and should run in the logged-in user session with PipeWire/PortAudio access.
 
 Checked alternatives before choosing this:
@@ -50,7 +50,7 @@ Install system packages:
 sudo pacman -S --needed python python-pip portaudio curl unzip
 ```
 
-For NVIDIA/CUDA faster-whisper acceleration you can tune `whisper_device` and `whisper_compute_type` in the config. The default `auto` + `int8` is conservative.
+The default active speech recognizer runs faster-whisper on CPU with `int8`. That avoids accidental CUDA loading failures such as missing `libcublas.so.12`. If CUDA is intentionally configured later, tune `whisper_device` and `whisper_compute_type` in the config.
 
 ## Install
 
@@ -98,13 +98,14 @@ Important values:
 - `wake.model_path`: local Vosk model path
 - `audio.device`: input device name/index. On this machine it stays empty and PipeWire default source is set to HyperX SoloCast; raw ALSA index `0` rejects 16000 Hz.
 - `audio.active_window_seconds`: post-wake recording window
+- `words.max_candidates`: maximum distinct vocabulary words accepted from one active recording. Default `1` rejects noisy multi-word recognitions instead of saving the wrong word.
 - `feedback.hyprctl_notify`: safe Hyprland popup feedback without `swaync`
 - `feedback.sound`: short local sounds for ready/wake/success/error
 - `feedback.notify_send`: disabled by default because it can activate the notification daemon
 - `stt.whisper_model`: faster-whisper model name or local model path
 - `llm.provider`: `ollama`, `openai-compatible`, `openclaw`, or `none`
 - `llm.endpoint`: local endpoint URL
-- `llm.model`: default `qwen2.5:1.5b`
+- `llm.model`: default `gpt-oss:20b`
 - `duplicates.overwrite_existing`: duplicate update policy
 
 ## Foreground Debug Run
@@ -131,6 +132,12 @@ Test local feedback without using the notification daemon:
 
 ```bash
 .venv/bin/obsidian-voice-vocab --foreground feedback-test
+```
+
+Test the local LLM without writing to Obsidian:
+
+```bash
+.venv/bin/obsidian-voice-vocab --foreground llm-test sustainable
 ```
 
 Run daemon in foreground:
@@ -247,11 +254,10 @@ Duplicate policy:
 The prompt asks the local model for exactly two non-markdown lines:
 
 ```text
-translation: <short Russian translation>
-example: <one short natural B1-B2 English sentence containing the exact word>
+{"translation":"<short Russian translation>","example":"<one short natural B1-B2 English sentence containing the exact word>"}
 ```
 
-The parser accepts strict key-value output, JSON, or two plain lines. If the local endpoint is unavailable, the daemon logs the error and writes the word with fallback fields:
+The parser accepts strict JSON, key-value output, or two plain lines. It rejects examples that are not English, do not contain the exact word, or only talk about studying the word instead of showing its meaning in context. If the local endpoint is unavailable, the daemon logs the error and writes the word with fallback fields:
 
 - `Status: llm-failed`
 - a built-in translation only when the tiny fallback dictionary knows the word

@@ -5,9 +5,10 @@ from tempfile import TemporaryDirectory
 import re
 import unittest
 
-from obsidian_voice_vocab.config import AppConfig, DuplicateConfig, RuntimeConfig, VaultConfig
+from obsidian_voice_vocab.config import AppConfig, DuplicateConfig, RuntimeConfig, VaultConfig, WordConfig
 from obsidian_voice_vocab.markdown_store import DictionaryStore, VocabEntry, parse_entries, render_file
 from obsidian_voice_vocab.normalizer import extract_word, file_letter_for_word, normalize_word
+from obsidian_voice_vocab.daemon import VoiceVocabularyDaemon
 
 
 class MarkdownStoreTests(unittest.TestCase):
@@ -85,6 +86,13 @@ class MarkdownStoreTests(unittest.TestCase):
     self.assertEqual(extraction.word, "sustainable")
     self.assertEqual(extraction.ignored_command_words, ("please", "add"))
 
+  def test_active_command_words_ignore_wake_phrase_remnants(self) -> None:
+    with TemporaryDirectory() as tmp:
+      daemon = VoiceVocabularyDaemon(_config(Path(tmp)))
+      extraction = extract_word("hello obsidian reliable", daemon._active_command_words(), allow_hyphenated=True)
+      self.assertEqual(extraction.word, "reliable")
+      self.assertEqual(extraction.ignored_command_words, ("hello", "obsidian"))
+
   def test_rendered_numbering_is_sequential_after_parse(self) -> None:
     rendered = render_file("B", [VocabEntry("better"), VocabEntry("basic"), VocabEntry("build")])
     numbers = re.findall(r"^(\d+)\. \*\*", rendered, flags=re.MULTILINE)
@@ -97,10 +105,10 @@ def _config(tmp: Path, overwrite: bool = False) -> AppConfig:
   return AppConfig(
     vault=VaultConfig(path=vault, dictionary_folder="English"),
     duplicates=DuplicateConfig(overwrite_existing=overwrite),
+    words=WordConfig(max_candidates=1),
     runtime=RuntimeConfig(log_file=None),
   ).expanded()
 
 
 if __name__ == "__main__":
   unittest.main()
-

@@ -55,7 +55,7 @@ class WakeConfig:
 class SttConfig:
   provider: str = "faster-whisper"
   whisper_model: str = "base.en"
-  whisper_device: str = "auto"
+  whisper_device: str = "cpu"
   whisper_compute_type: str = "int8"
   fallback_to_vosk: bool = True
   language: str = "en"
@@ -65,8 +65,8 @@ class SttConfig:
 class LlmConfig:
   provider: str = "ollama"
   endpoint: str = "http://127.0.0.1:11434"
-  model: str = "qwen2.5:1.5b"
-  timeout_seconds: float = 20.0
+  model: str = "gpt-oss:20b"
+  timeout_seconds: float = 90.0
   temperature: float = 0.2
   max_tokens: int = 180
   fallback_dictionary: bool = True
@@ -90,6 +90,7 @@ class WordConfig:
     "new",
   )
   allow_hyphenated: bool = True
+  max_candidates: int = 1
 
 
 @dataclass(frozen=True)
@@ -174,6 +175,7 @@ class AppConfig:
       words=WordConfig(
         command_words=tuple(word.lower() for word in _list(raw, "words", "command_words", default=list(WordConfig.command_words))),
         allow_hyphenated=_bool(raw, "words", "allow_hyphenated", default=WordConfig.allow_hyphenated),
+        max_candidates=_int(raw, "words", "max_candidates", default=WordConfig.max_candidates),
       ),
       runtime=RuntimeConfig(
         log_level=_string(raw, "runtime", "log_level", default=RuntimeConfig.log_level),

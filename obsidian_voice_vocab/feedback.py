@@ -86,7 +86,6 @@ class Feedback:
 
   def _run(self, cmd: list[str]) -> None:
     try:
-      subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=2, check=False)
+      subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     except Exception as exc:
       LOG.debug("feedback command failed cmd=%s error=%s", cmd, exc)
-

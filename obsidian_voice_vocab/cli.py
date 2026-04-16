@@ -54,6 +54,10 @@ def build_parser() -> argparse.ArgumentParser:
   feedback_parser = subparsers.add_parser("feedback-test", help="Show safe desktop feedback without enabling swaync.")
   feedback_parser.set_defaults(func=cmd_feedback_test)
 
+  llm_parser = subparsers.add_parser("llm-test", help="Generate translation/example for one word without writing to Obsidian.")
+  llm_parser.add_argument("word", help="English word to test.")
+  llm_parser.set_defaults(func=cmd_llm_test)
+
   add_parser = subparsers.add_parser("add-word", help="Add or update one word without microphone.")
   add_parser.add_argument("text", help="Word or short phrase; the first valid English word is used.")
   add_parser.add_argument("--translation", default="", help="Manual Russian translation. Skips LLM only if --example is also supplied or --no-generate is used.")
@@ -138,6 +142,17 @@ def cmd_feedback_test(args: argparse.Namespace, config: AppConfig) -> int:
   feedback.ready()
   feedback.wake()
   feedback.success("example")
+  return 0
+
+
+def cmd_llm_test(args: argparse.Namespace, config: AppConfig) -> int:
+  word = normalize_word(args.word)
+  adapter = build_adapter(config.llm)
+  generated = generate_with_fallback(adapter, config.llm, word)
+  print(f"word: {word}")
+  print(f"translation: {generated.translation}")
+  print(f"example: {generated.example}")
+  print(f"status: {generated.status}")
   return 0
 
 

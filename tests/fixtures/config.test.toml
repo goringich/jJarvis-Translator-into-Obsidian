@@ -25,7 +25,7 @@ model_path = "/tmp/obsidian-voice-vocab-test-vosk"
 [stt]
 provider = "faster-whisper"
 whisper_model = "base.en"
-whisper_device = "auto"
+whisper_device = "cpu"
 whisper_compute_type = "int8"
 fallback_to_vosk = true
 language = "en"
@@ -33,7 +33,7 @@ language = "en"
 [llm]
 provider = "none"
 endpoint = "http://127.0.0.1:11434"
-model = "qwen2.5:1.5b"
+model = "gpt-oss:20b"
 timeout_seconds = 2.0
 temperature = 0.2
 max_tokens = 180
@@ -46,4 +46,3 @@ allow_hyphenated = true
 [runtime]
 log_level = "INFO"
 log_file = ""
-

@@ -49,17 +49,19 @@ class VoiceVocabularyDaemon:
       transcript = self.transcriber.transcribe(wav_path)
       extraction = extract_word(
         transcript,
-        command_words=self.config.words.command_words,
+        command_words=self._active_command_words(),
         allow_hyphenated=self.config.words.allow_hyphenated,
       )
-      if len(extraction.candidates) > 1:
-        LOG.warning(
-          "multiple English word candidates recognized, using first word=%s candidates=%s ignored=%s source=%r",
-          extraction.word,
-          extraction.candidates,
-          extraction.ignored_command_words,
-          extraction.source_text,
+      unique_candidates = tuple(dict.fromkeys(extraction.candidates))
+      if len(unique_candidates) > self.config.words.max_candidates:
+        raise WordExtractionError(
+          "recognized too many possible words; say one English word after the wake sound "
+          f"(candidates={', '.join(unique_candidates)})"
         )
+      if len(extraction.candidates) > len(unique_candidates):
+        LOG.info("recognized repeated word candidates=%s unique=%s source=%r", extraction.candidates, unique_candidates, extraction.source_text)
+      if len(unique_candidates) > 1:
+        LOG.warning("multiple English word candidates recognized candidates=%s ignored=%s source=%r", unique_candidates, extraction.ignored_command_words, extraction.source_text)
       else:
         LOG.info("recognized word=%s source=%r", extraction.word, extraction.source_text)
 
@@ -97,6 +99,12 @@ class VoiceVocabularyDaemon:
         wav_path.unlink(missing_ok=True)
       except OSError as exc:
         LOG.warning("failed to delete temporary audio file %s: %s", wav_path, exc)
+
+  def _active_command_words(self) -> tuple[str, ...]:
+    wake_words: list[str] = []
+    for phrase in (*self.config.wake.phrase_variants, self.config.wake.phrase):
+      wake_words.extend(part for part in phrase.lower().replace("-", " ").split() if part)
+    return tuple(dict.fromkeys((*self.config.words.command_words, *wake_words)))
 
 
 def _short_reason(text: str, limit: int = 120) -> str:
