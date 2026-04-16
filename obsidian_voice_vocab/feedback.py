@@ -18,7 +18,7 @@ class Feedback:
     self.emit("Voice Vocabulary", "Listening for: Hello Obsidian", "info", "ready")
 
   def wake(self) -> None:
-    self.emit("Voice Vocabulary", "Wake phrase detected. Say one English word.", "hint", "wake")
+    self.emit("Voice Vocabulary", "Wake phrase detected. Say one English word.", "hint", None)
 
   def success(self, word: str) -> None:
     self.emit("Voice Vocabulary", f"Added: {word}", "ok", "success")
@@ -29,7 +29,7 @@ class Feedback:
   def error(self, reason: str) -> None:
     self.emit("Voice Vocabulary", f"Error: {reason}", "error", "error")
 
-  def emit(self, title: str, message: str, level: str, sound_name: str) -> None:
+  def emit(self, title: str, message: str, level: str, sound_name: str | None) -> None:
     LOG.info("feedback level=%s title=%r message=%r", level, title, message)
     self._hyprctl(title, message, level)
     self._notify_send(title, message)
@@ -68,8 +68,8 @@ class Feedback:
       return
     self._run(["notify-send", "-t", str(self.config.feedback.timeout_ms), title, message])
 
-  def _sound(self, sound_name: str) -> None:
-    if not self.config.feedback.sound:
+  def _sound(self, sound_name: str | None) -> None:
+    if not self.config.feedback.sound or not sound_name:
       return
     path = {
       "ready": self.config.feedback.ready_sound,
