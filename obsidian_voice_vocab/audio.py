@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 from tempfile import NamedTemporaryFile
+from collections import deque
+from dataclasses import dataclass
 import json
 import logging
 import math
@@ -19,6 +21,13 @@ class AudioError(RuntimeError):
   pass
 
 
+@dataclass(frozen=True)
+class AudioLevel:
+  rms: float
+  peak: float
+  samples: int
+
+
 class AudioRecorder:
   def __init__(self, config: AppConfig):
     self.config = config
@@ -26,16 +35,39 @@ class AudioRecorder:
   def record_wav(self, seconds: float) -> Path:
     sd = _sounddevice()
     chunks: list[bytes] = []
+    pre_roll: deque[bytes] = deque()
     sample_rate = self.config.audio.sample_rate
     channels = self.config.audio.channels
     blocksize = max(1, int(sample_rate * self.config.audio.block_ms / 1000))
+    block_seconds = blocksize / sample_rate
+    pre_roll_blocks = max(1, int(self.config.audio.speech_pre_roll_ms / self.config.audio.block_ms))
+    max_seconds = max(seconds, self.config.audio.speech_min_seconds)
+    speech_start_timeout = min(self.config.audio.speech_start_timeout_seconds, max_seconds)
+    silence_stop = self.config.audio.speech_silence_stop_seconds
+    speech_min = self.config.audio.speech_min_seconds
+    speech_started_at: float | None = None
+    last_speech_at: float | None = None
+    speech_streak = 0
+    max_rms = 0.0
+    max_peak = 0.0
+    callback_queue: queue.Queue[bytes] = queue.Queue()
 
     def callback(indata, frames, time_info, status) -> None:
       if status:
         LOG.warning("audio input status during active recording: %s", status)
-      chunks.append(bytes(indata))
+      callback_queue.put(bytes(indata))
 
-    LOG.info("active recording started window=%.1fs sample_rate=%s device=%s", seconds, sample_rate, self.config.audio.device)
+    LOG.info(
+      "active speech recording armed max_window=%.1fs start_timeout=%.1fs silence_stop=%.1fs start_blocks=%s rms_threshold=%.4f peak_threshold=%.4f sample_rate=%s device=%s",
+      max_seconds,
+      speech_start_timeout,
+      silence_stop,
+      self.config.audio.speech_start_blocks,
+      self.config.audio.speech_rms_threshold,
+      self.config.audio.speech_peak_threshold,
+      sample_rate,
+      self.config.audio.device,
+    )
     try:
       with sd.RawInputStream(
         samplerate=sample_rate,
@@ -45,8 +77,53 @@ class AudioRecorder:
         device=self.config.audio.device,
         callback=callback,
       ):
-        time.sleep(seconds)
+        started = time.monotonic()
+        while True:
+          now = time.monotonic()
+          elapsed = now - started
+          if elapsed >= max_seconds:
+            break
+          try:
+            data = callback_queue.get(timeout=max(0.1, min(block_seconds, max_seconds - elapsed)))
+          except queue.Empty:
+            continue
+          level = _level_for_chunk(data)
+          max_rms = max(max_rms, level.rms)
+          max_peak = max(max_peak, level.peak)
+          is_speech = level.rms >= self.config.audio.speech_rms_threshold or level.peak >= self.config.audio.speech_peak_threshold
+
+          if speech_started_at is None:
+            pre_roll.append(data)
+            while len(pre_roll) > pre_roll_blocks:
+              pre_roll.popleft()
+            if is_speech:
+              speech_streak += 1
+              if speech_streak >= max(1, self.config.audio.speech_start_blocks):
+                speech_started_at = elapsed - ((speech_streak - 1) * block_seconds)
+                last_speech_at = elapsed
+                chunks.extend(pre_roll)
+                pre_roll.clear()
+                LOG.info("speech start detected at=%.2fs rms=%.4f peak=%.4f streak=%s", speech_started_at, level.rms, level.peak, speech_streak)
+            else:
+              speech_streak = 0
+            if speech_started_at is None and elapsed >= speech_start_timeout:
+              raise AudioError(
+                "no speech detected after wake phrase "
+                f"(timeout={speech_start_timeout:.1f}s max_rms={max_rms:.4f} max_peak={max_peak:.4f})"
+              )
+            continue
+
+          chunks.append(data)
+          if is_speech:
+            last_speech_at = elapsed
+          speech_duration = elapsed - speech_started_at
+          silence_duration = elapsed - (last_speech_at or elapsed)
+          if speech_duration >= speech_min and silence_duration >= silence_stop:
+            LOG.info("speech end detected at=%.2fs speech_duration=%.2fs silence=%.2fs", elapsed, speech_duration, silence_duration)
+            break
     except Exception as exc:
+      if isinstance(exc, AudioError):
+        raise
       raise AudioError(f"failed to record microphone audio: {exc}") from exc
 
     if not chunks:
@@ -59,7 +136,7 @@ class AudioRecorder:
       handle.setsampwidth(2)
       handle.setframerate(sample_rate)
       handle.writeframes(b"".join(chunks))
-    LOG.info("active recording saved path=%s bytes=%s", path, path.stat().st_size)
+    LOG.info("active recording saved path=%s bytes=%s max_rms=%.4f max_peak=%.4f", path, path.stat().st_size, max_rms, max_peak)
     return path
 
   def measure_level(self, seconds: float) -> tuple[float, float, int]:
@@ -89,11 +166,10 @@ class AudioRecorder:
       ):
         while time.monotonic() - started < seconds:
           data = audio_queue.get(timeout=max(0.1, seconds))
-          values = memoryview(data).cast("h")
-          for value in values:
-            peak = max(peak, abs(int(value)))
-            square_sum += float(value) * float(value)
-          samples += len(values)
+          level = _raw_level_for_chunk(data)
+          peak = max(peak, level.peak)
+          square_sum += level.rms * level.rms * level.samples
+          samples += level.samples
     except Exception as exc:
       raise AudioError(f"failed to measure microphone audio: {exc}") from exc
 
@@ -231,6 +307,25 @@ class SpeechTranscriber:
 def list_audio_devices() -> str:
   sd = _sounddevice()
   return str(sd.query_devices())
+
+
+def _raw_level_for_chunk(data: bytes) -> AudioLevel:
+  values = memoryview(data).cast("h")
+  samples = len(values)
+  if samples == 0:
+    return AudioLevel(rms=0.0, peak=0.0, samples=0)
+  peak = 0
+  square_sum = 0.0
+  for value in values:
+    integer = int(value)
+    peak = max(peak, abs(integer))
+    square_sum += float(integer) * float(integer)
+  return AudioLevel(rms=math.sqrt(square_sum / samples), peak=float(peak), samples=samples)
+
+
+def _level_for_chunk(data: bytes) -> AudioLevel:
+  raw = _raw_level_for_chunk(data)
+  return AudioLevel(rms=raw.rms / 32768.0, peak=raw.peak / 32768.0, samples=raw.samples)
 
 
 def _sounddevice():

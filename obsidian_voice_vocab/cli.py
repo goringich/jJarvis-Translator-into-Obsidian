@@ -5,9 +5,9 @@ import argparse
 import logging
 import sys
 
-from .audio import AudioError, AudioRecorder, list_audio_devices
+from .audio import AudioError, AudioRecorder, SpeechTranscriber, list_audio_devices
 from .config import AppConfig, default_config_path
-from .daemon import VoiceVocabularyDaemon
+from .daemon import VoiceVocabularyDaemon, active_command_words
 from .feedback import Feedback
 from .llm import build_adapter, generate_with_fallback
 from .logging_setup import setup_logging
@@ -50,6 +50,10 @@ def build_parser() -> argparse.ArgumentParser:
   mic_parser = subparsers.add_parser("mic-test", help="Measure configured microphone level for a few seconds.")
   mic_parser.add_argument("--seconds", type=float, default=3.0, help="Measurement duration.")
   mic_parser.set_defaults(func=cmd_mic_test)
+
+  record_parser = subparsers.add_parser("record-test", help="Record the active speech window, transcribe it, and do not write to Obsidian.")
+  record_parser.add_argument("--keep-wav", action="store_true", help="Keep the captured WAV file and print its path.")
+  record_parser.set_defaults(func=cmd_record_test)
 
   feedback_parser = subparsers.add_parser("feedback-test", help="Show safe desktop feedback without enabling swaync.")
   feedback_parser.set_defaults(func=cmd_feedback_test)
@@ -137,6 +141,40 @@ def cmd_mic_test(args: argparse.Namespace, config: AppConfig) -> int:
   return 0
 
 
+def cmd_record_test(args: argparse.Namespace, config: AppConfig) -> int:
+  recorder = AudioRecorder(config)
+  wav_path = recorder.record_wav(config.audio.active_window_seconds)
+  try:
+    transcript = SpeechTranscriber(config).transcribe(wav_path)
+    print(f"wav: {wav_path}")
+    print(f"transcript: {transcript!r}")
+    try:
+      extraction = extract_word(
+        transcript,
+        command_words=active_command_words(config),
+        allow_hyphenated=config.words.allow_hyphenated,
+        singularize_simple_plurals=config.words.singularize_simple_plurals,
+      )
+      unique_candidates = tuple(dict.fromkeys(extraction.candidates))
+      print(f"word: {extraction.word}")
+      print(f"candidates: {', '.join(unique_candidates)}")
+      print(f"ignored: {', '.join(extraction.ignored_command_words)}")
+      if len(unique_candidates) > config.words.max_candidates:
+        print("decision: reject-too-many-candidates")
+        return 4
+      print("decision: accept")
+    except WordExtractionError as exc:
+      print(f"decision: reject ({exc})")
+      return 3
+    return 0
+  finally:
+    if not args.keep_wav:
+      try:
+        wav_path.unlink(missing_ok=True)
+      except OSError as exc:
+        LOG.warning("failed to delete record-test wav %s: %s", wav_path, exc)
+
+
 def cmd_feedback_test(args: argparse.Namespace, config: AppConfig) -> int:
   feedback = Feedback(config)
   feedback.ready()
@@ -146,7 +184,7 @@ def cmd_feedback_test(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_llm_test(args: argparse.Namespace, config: AppConfig) -> int:
-  word = normalize_word(args.word)
+  word = normalize_word(args.word, singularize_simple_plurals=config.words.singularize_simple_plurals)
   adapter = build_adapter(config.llm)
   generated = generate_with_fallback(adapter, config.llm, word)
   print(f"word: {word}")
@@ -164,10 +202,11 @@ def cmd_add_word(args: argparse.Namespace, config: AppConfig) -> int:
       args.text,
       command_words=config.words.command_words,
       allow_hyphenated=config.words.allow_hyphenated,
+      singularize_simple_plurals=config.words.singularize_simple_plurals,
     )
     word = extraction.word
   except WordExtractionError:
-    word = normalize_word(args.text)
+    word = normalize_word(args.text, singularize_simple_plurals=config.words.singularize_simple_plurals)
 
   translation = args.translation
   example = args.example

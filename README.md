@@ -4,6 +4,8 @@ Local Arch Linux daemon for adding English words to an Obsidian vault by voice.
 
 The service listens for `Hello Obsidian` with a lightweight local Vosk grammar recognizer. Only after the wake phrase it records a short microphone window and runs active speech recognition with `faster-whisper`. The recognized word is normalized, enriched through a local LLM endpoint, and written into deterministic A-Z markdown files in the vault.
 
+After the wake phrase, recording is speech-gated: the daemon waits for a real voice signal, keeps a small pre-roll so the first sound is not clipped, and stops after a short silence. This avoids sending long silence/noise windows to Whisper.
+
 ## Why This Stack
 
 - Wake word: Vosk grammar mode, because it is offline, CPU-light, Linux-friendly, and can recognize the exact phrase `hello obsidian` without training a custom wake-word model.
@@ -98,7 +100,9 @@ Important values:
 - `wake.model_path`: local Vosk model path
 - `audio.device`: input device name/index. On this machine it stays empty and PipeWire default source is set to HyperX SoloCast; raw ALSA index `0` rejects 16000 Hz.
 - `audio.active_window_seconds`: post-wake recording window
+- `audio.speech_*`: energy gate for the post-wake speech window
 - `words.max_candidates`: maximum distinct vocabulary words accepted from one active recording. Default `1` rejects noisy multi-word recognitions instead of saving the wrong word.
+- `words.singularize_simple_plurals`: converts simple plural recognitions such as `elephants` to `elephant`
 - `feedback.hyprctl_notify`: safe Hyprland popup feedback without `swaync`
 - `feedback.sound`: short local sounds for ready/wake/success/error
 - `feedback.notify_send`: disabled by default because it can activate the notification daemon
@@ -126,6 +130,12 @@ Check that the configured microphone is producing signal:
 
 ```bash
 .venv/bin/obsidian-voice-vocab --foreground mic-test --seconds 3
+```
+
+Record and transcribe the same active speech window used after wake, without writing to Obsidian:
+
+```bash
+.venv/bin/obsidian-voice-vocab --foreground record-test
 ```
 
 Test local feedback without using the notification daemon:

@@ -8,7 +8,7 @@ import unittest
 from obsidian_voice_vocab.config import AppConfig, DuplicateConfig, RuntimeConfig, VaultConfig, WordConfig
 from obsidian_voice_vocab.markdown_store import DictionaryStore, VocabEntry, parse_entries, render_file
 from obsidian_voice_vocab.normalizer import extract_word, file_letter_for_word, normalize_word
-from obsidian_voice_vocab.daemon import VoiceVocabularyDaemon
+from obsidian_voice_vocab.daemon import active_command_words
 
 
 class MarkdownStoreTests(unittest.TestCase):
@@ -80,6 +80,8 @@ class MarkdownStoreTests(unittest.TestCase):
     self.assertEqual(normalize_word(" Sustainable! "), "sustainable")
     self.assertEqual(file_letter_for_word("sustainable"), "S")
     self.assertEqual(file_letter_for_word("well-being"), "W")
+    self.assertEqual(normalize_word("Elephants.", singularize_simple_plurals=True), "elephant")
+    self.assertEqual(normalize_word("classes", singularize_simple_plurals=True), "class")
 
   def test_extract_word_ignores_command_words(self) -> None:
     extraction = extract_word("please add sustainable", ("please", "add"), allow_hyphenated=True)
@@ -88,10 +90,19 @@ class MarkdownStoreTests(unittest.TestCase):
 
   def test_active_command_words_ignore_wake_phrase_remnants(self) -> None:
     with TemporaryDirectory() as tmp:
-      daemon = VoiceVocabularyDaemon(_config(Path(tmp)))
-      extraction = extract_word("hello obsidian reliable", daemon._active_command_words(), allow_hyphenated=True)
+      extraction = extract_word(
+        "hello obsidian reliable",
+        active_command_words(_config(Path(tmp))),
+        allow_hyphenated=True,
+        singularize_simple_plurals=True,
+      )
       self.assertEqual(extraction.word, "reliable")
       self.assertEqual(extraction.ignored_command_words, ("hello", "obsidian"))
+
+  def test_extract_word_singularizes_simple_plural(self) -> None:
+    extraction = extract_word("Elephants.", (), allow_hyphenated=True, singularize_simple_plurals=True)
+    self.assertEqual(extraction.word, "elephant")
+    self.assertEqual(extraction.candidates, ("elephant",))
 
   def test_rendered_numbering_is_sequential_after_parse(self) -> None:
     rendered = render_file("B", [VocabEntry("better"), VocabEntry("basic"), VocabEntry("build")])

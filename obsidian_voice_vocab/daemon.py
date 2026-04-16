@@ -49,8 +49,9 @@ class VoiceVocabularyDaemon:
       transcript = self.transcriber.transcribe(wav_path)
       extraction = extract_word(
         transcript,
-        command_words=self._active_command_words(),
+        command_words=active_command_words(self.config),
         allow_hyphenated=self.config.words.allow_hyphenated,
+        singularize_simple_plurals=self.config.words.singularize_simple_plurals,
       )
       unique_candidates = tuple(dict.fromkeys(extraction.candidates))
       if len(unique_candidates) > self.config.words.max_candidates:
@@ -100,15 +101,16 @@ class VoiceVocabularyDaemon:
       except OSError as exc:
         LOG.warning("failed to delete temporary audio file %s: %s", wav_path, exc)
 
-  def _active_command_words(self) -> tuple[str, ...]:
-    wake_words: list[str] = []
-    for phrase in (*self.config.wake.phrase_variants, self.config.wake.phrase):
-      wake_words.extend(part for part in phrase.lower().replace("-", " ").split() if part)
-    return tuple(dict.fromkeys((*self.config.words.command_words, *wake_words)))
-
 
 def _short_reason(text: str, limit: int = 120) -> str:
   clean = " ".join(str(text or "").split())
   if len(clean) <= limit:
     return clean
   return f"{clean[:limit - 3]}..."
+
+
+def active_command_words(config: AppConfig) -> tuple[str, ...]:
+  wake_words: list[str] = []
+  for phrase in (*config.wake.phrase_variants, config.wake.phrase):
+    wake_words.extend(part for part in phrase.lower().replace("-", " ").split() if part)
+  return tuple(dict.fromkeys((*config.words.command_words, *wake_words)))

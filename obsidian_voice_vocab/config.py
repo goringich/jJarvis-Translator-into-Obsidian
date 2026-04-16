@@ -29,6 +29,13 @@ class AudioConfig:
   channels: int = 1
   block_ms: int = 80
   active_window_seconds: float = 6.0
+  speech_start_timeout_seconds: float = 4.0
+  speech_silence_stop_seconds: float = 1.0
+  speech_min_seconds: float = 0.35
+  speech_pre_roll_ms: int = 240
+  speech_start_blocks: int = 2
+  speech_rms_threshold: float = 0.007
+  speech_peak_threshold: float = 0.025
 
 
 @dataclass(frozen=True)
@@ -91,6 +98,7 @@ class WordConfig:
   )
   allow_hyphenated: bool = True
   max_candidates: int = 1
+  singularize_simple_plurals: bool = True
 
 
 @dataclass(frozen=True)
@@ -138,6 +146,13 @@ class AppConfig:
         channels=_int(raw, "audio", "channels", default=AudioConfig.channels),
         block_ms=_int(raw, "audio", "block_ms", default=AudioConfig.block_ms),
         active_window_seconds=_float(raw, "audio", "active_window_seconds", default=AudioConfig.active_window_seconds),
+        speech_start_timeout_seconds=_float(raw, "audio", "speech_start_timeout_seconds", default=AudioConfig.speech_start_timeout_seconds),
+        speech_silence_stop_seconds=_float(raw, "audio", "speech_silence_stop_seconds", default=AudioConfig.speech_silence_stop_seconds),
+        speech_min_seconds=_float(raw, "audio", "speech_min_seconds", default=AudioConfig.speech_min_seconds),
+        speech_pre_roll_ms=_int(raw, "audio", "speech_pre_roll_ms", default=AudioConfig.speech_pre_roll_ms),
+        speech_start_blocks=_int(raw, "audio", "speech_start_blocks", default=AudioConfig.speech_start_blocks),
+        speech_rms_threshold=_float(raw, "audio", "speech_rms_threshold", default=AudioConfig.speech_rms_threshold),
+        speech_peak_threshold=_float(raw, "audio", "speech_peak_threshold", default=AudioConfig.speech_peak_threshold),
       ),
       feedback=FeedbackConfig(
         hyprctl_notify=_bool(raw, "feedback", "hyprctl_notify", default=FeedbackConfig.hyprctl_notify),
@@ -176,6 +191,7 @@ class AppConfig:
         command_words=tuple(word.lower() for word in _list(raw, "words", "command_words", default=list(WordConfig.command_words))),
         allow_hyphenated=_bool(raw, "words", "allow_hyphenated", default=WordConfig.allow_hyphenated),
         max_candidates=_int(raw, "words", "max_candidates", default=WordConfig.max_candidates),
+        singularize_simple_plurals=_bool(raw, "words", "singularize_simple_plurals", default=WordConfig.singularize_simple_plurals),
       ),
       runtime=RuntimeConfig(
         log_level=_string(raw, "runtime", "log_level", default=RuntimeConfig.log_level),

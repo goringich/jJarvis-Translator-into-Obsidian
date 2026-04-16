@@ -34,7 +34,18 @@ device = ""
 block_ms = 80
 
 # Seconds recorded after the wake phrase is detected.
+# This is now the maximum speech window; recording stops earlier after speech ends.
 active_window_seconds = 6.0
+
+# Lightweight energy gate for the active speech window after wake.
+# Tune with `obsidian-voice-vocab record-test` if your room is very quiet/noisy.
+speech_start_timeout_seconds = 4.0
+speech_silence_stop_seconds = 1.0
+speech_min_seconds = 0.35
+speech_pre_roll_ms = 240
+speech_start_blocks = 2
+speech_rms_threshold = 0.007
+speech_peak_threshold = 0.025
 
 [wake]
 # Wake phrase is recognized locally by Vosk grammar mode.
@@ -103,6 +114,7 @@ command_words = [
 ]
 allow_hyphenated = true
 max_candidates = 1
+singularize_simple_plurals = true
 
 [runtime]
 log_level = "INFO"
