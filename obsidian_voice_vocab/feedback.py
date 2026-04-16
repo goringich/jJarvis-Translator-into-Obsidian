@@ -20,6 +20,9 @@ class Feedback:
   def wake(self) -> None:
     self.emit("Voice Vocabulary", "Wake phrase detected. Say one English word.", "hint", None)
 
+  def wake_rejected(self, reason: str) -> None:
+    self.emit("Voice Vocabulary", f"Wake ignored: {reason}", "warning", None)
+
   def success(self, word: str) -> None:
     self.emit("Voice Vocabulary", f"Added: {word}", "ok", "success")
 

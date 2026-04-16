@@ -36,6 +36,9 @@ class AudioConfig:
   speech_start_blocks: int = 2
   speech_rms_threshold: float = 0.007
   speech_peak_threshold: float = 0.025
+  speech_finish_grace_seconds: float = 0.45
+  vad_mode: int = 2
+  vad_frame_ms: int = 30
 
 
 @dataclass(frozen=True)
@@ -56,12 +59,19 @@ class WakeConfig:
   phrase_variants: tuple[str, ...] = ("hello obsidian", "hey obsidian", "okay obsidian")
   provider: str = "vosk-grammar"
   model_path: Path = Path("~/.local/share/obsidian-voice-vocab/models/vosk-model-small-en-us-0.15")
+  require_exact_match: bool = True
+  partial_confirmation_count: int = 2
+  verify_with_stt: bool = True
+  verify_buffer_seconds: float = 1.8
+  verify_post_roll_seconds: float = 0.35
+  verify_whisper_model: str = ""
+  cooldown_seconds: float = 1.2
 
 
 @dataclass(frozen=True)
 class SttConfig:
   provider: str = "faster-whisper"
-  whisper_model: str = "base.en"
+  whisper_model: str = "small.en"
   whisper_device: str = "cpu"
   whisper_compute_type: str = "int8"
   fallback_to_vosk: bool = True
@@ -95,6 +105,34 @@ class WordConfig:
     "a",
     "an",
     "new",
+  )
+  ignored_words: tuple[str, ...] = (
+    "and",
+    "or",
+    "but",
+    "oh",
+    "uh",
+    "um",
+    "ah",
+    "eh",
+    "hmm",
+    "in",
+    "on",
+    "at",
+    "of",
+    "to",
+    "for",
+    "from",
+    "with",
+    "by",
+    "into",
+    "onto",
+    "over",
+    "under",
+    "up",
+    "down",
+    "out",
+    "off",
   )
   allow_hyphenated: bool = True
   max_candidates: int = 1
@@ -153,6 +191,9 @@ class AppConfig:
         speech_start_blocks=_int(raw, "audio", "speech_start_blocks", default=AudioConfig.speech_start_blocks),
         speech_rms_threshold=_float(raw, "audio", "speech_rms_threshold", default=AudioConfig.speech_rms_threshold),
         speech_peak_threshold=_float(raw, "audio", "speech_peak_threshold", default=AudioConfig.speech_peak_threshold),
+        speech_finish_grace_seconds=_float(raw, "audio", "speech_finish_grace_seconds", default=AudioConfig.speech_finish_grace_seconds),
+        vad_mode=_int(raw, "audio", "vad_mode", default=AudioConfig.vad_mode),
+        vad_frame_ms=_int(raw, "audio", "vad_frame_ms", default=AudioConfig.vad_frame_ms),
       ),
       feedback=FeedbackConfig(
         hyprctl_notify=_bool(raw, "feedback", "hyprctl_notify", default=FeedbackConfig.hyprctl_notify),
@@ -169,6 +210,13 @@ class AppConfig:
         phrase_variants=tuple(item.lower() for item in _list(raw, "wake", "phrase_variants", default=list(WakeConfig.phrase_variants))),
         provider=_string(raw, "wake", "provider", default=WakeConfig.provider),
         model_path=_path(raw, "wake", "model_path", default=WakeConfig.model_path),
+        require_exact_match=_bool(raw, "wake", "require_exact_match", default=WakeConfig.require_exact_match),
+        partial_confirmation_count=_int(raw, "wake", "partial_confirmation_count", default=WakeConfig.partial_confirmation_count),
+        verify_with_stt=_bool(raw, "wake", "verify_with_stt", default=WakeConfig.verify_with_stt),
+        verify_buffer_seconds=_float(raw, "wake", "verify_buffer_seconds", default=WakeConfig.verify_buffer_seconds),
+        verify_post_roll_seconds=_float(raw, "wake", "verify_post_roll_seconds", default=WakeConfig.verify_post_roll_seconds),
+        verify_whisper_model=_string(raw, "wake", "verify_whisper_model", default=WakeConfig.verify_whisper_model),
+        cooldown_seconds=_float(raw, "wake", "cooldown_seconds", default=WakeConfig.cooldown_seconds),
       ),
       stt=SttConfig(
         provider=_string(raw, "stt", "provider", default=SttConfig.provider),
@@ -189,6 +237,7 @@ class AppConfig:
       ),
       words=WordConfig(
         command_words=tuple(word.lower() for word in _list(raw, "words", "command_words", default=list(WordConfig.command_words))),
+        ignored_words=tuple(word.lower() for word in _list(raw, "words", "ignored_words", default=list(WordConfig.ignored_words))),
         allow_hyphenated=_bool(raw, "words", "allow_hyphenated", default=WordConfig.allow_hyphenated),
         max_candidates=_int(raw, "words", "max_candidates", default=WordConfig.max_candidates),
         singularize_simple_plurals=_bool(raw, "words", "singularize_simple_plurals", default=WordConfig.singularize_simple_plurals),
@@ -223,6 +272,13 @@ class AppConfig:
         phrase_variants=tuple(item.lower() for item in self.wake.phrase_variants),
         provider=self.wake.provider,
         model_path=_expand(self.wake.model_path),
+        require_exact_match=self.wake.require_exact_match,
+        partial_confirmation_count=self.wake.partial_confirmation_count,
+        verify_with_stt=self.wake.verify_with_stt,
+        verify_buffer_seconds=self.wake.verify_buffer_seconds,
+        verify_post_roll_seconds=self.wake.verify_post_roll_seconds,
+        verify_whisper_model=self.wake.verify_whisper_model,
+        cooldown_seconds=self.wake.cooldown_seconds,
       ),
       stt=self.stt,
       llm=self.llm,

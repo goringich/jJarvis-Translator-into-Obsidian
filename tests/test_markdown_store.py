@@ -12,6 +12,16 @@ from obsidian_voice_vocab.daemon import active_command_words
 
 
 class MarkdownStoreTests(unittest.TestCase):
+  def test_load_config_fixture_includes_wake_verification_and_vad(self) -> None:
+    root = Path(__file__).resolve().parent
+    config = AppConfig.load(root / "fixtures" / "config.test.toml")
+    self.assertEqual(config.audio.vad_mode, 2)
+    self.assertEqual(config.audio.vad_frame_ms, 30)
+    self.assertTrue(config.wake.verify_with_stt)
+    self.assertAlmostEqual(config.wake.verify_buffer_seconds, 1.8)
+    self.assertAlmostEqual(config.wake.verify_post_roll_seconds, 0.35)
+    self.assertAlmostEqual(config.wake.cooldown_seconds, 1.2)
+
   def test_render_parse_round_trip_sorted(self) -> None:
     rendered = render_file(
       "S",
@@ -98,6 +108,17 @@ class MarkdownStoreTests(unittest.TestCase):
       )
       self.assertEqual(extraction.word, "reliable")
       self.assertEqual(extraction.ignored_command_words, ("hello", "obsidian"))
+
+  def test_active_command_words_ignore_fillers_before_real_word(self) -> None:
+    with TemporaryDirectory() as tmp:
+      extraction = extract_word(
+        "and campaign",
+        active_command_words(_config(Path(tmp))),
+        allow_hyphenated=True,
+        singularize_simple_plurals=True,
+      )
+      self.assertEqual(extraction.word, "campaign")
+      self.assertEqual(extraction.ignored_command_words, ("and",))
 
   def test_extract_word_singularizes_simple_plural(self) -> None:
     extraction = extract_word("Elephants.", (), allow_hyphenated=True, singularize_simple_plurals=True)

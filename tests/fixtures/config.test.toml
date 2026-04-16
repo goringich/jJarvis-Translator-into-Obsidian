@@ -16,15 +16,30 @@ channels = 1
 device = ""
 block_ms = 80
 active_window_seconds = 6.0
+speech_silence_stop_seconds = 1.0
+speech_min_seconds = 0.35
+speech_finish_grace_seconds = 0.45
+vad_mode = 2
+vad_frame_ms = 30
+speech_rms_threshold = 0.006
+speech_peak_threshold = 0.020
 
 [wake]
 phrase = "hello obsidian"
+phrase_variants = ["hello obsidian", "hey obsidian", "okay obsidian"]
 provider = "vosk-grammar"
 model_path = "/tmp/obsidian-voice-vocab-test-vosk"
+require_exact_match = true
+partial_confirmation_count = 2
+verify_with_stt = true
+verify_buffer_seconds = 1.8
+verify_post_roll_seconds = 0.35
+verify_whisper_model = ""
+cooldown_seconds = 1.2
 
 [stt]
 provider = "faster-whisper"
-whisper_model = "base.en"
+whisper_model = "small.en"
 whisper_device = "cpu"
 whisper_compute_type = "int8"
 fallback_to_vosk = true
@@ -41,7 +56,10 @@ fallback_dictionary = true
 
 [words]
 command_words = ["please", "add", "word"]
+ignored_words = ["and", "oh", "in", "to"]
 allow_hyphenated = true
+max_candidates = 1
+singularize_simple_plurals = true
 
 [runtime]
 log_level = "INFO"

@@ -2,13 +2,13 @@
 
 Local Arch Linux daemon for adding English words to an Obsidian vault by voice.
 
-The service listens for `Hello Obsidian` with a lightweight local Vosk grammar recognizer. Only after the wake phrase it records a short microphone window and runs active speech recognition with `faster-whisper`. The recognized word is normalized, enriched through a local LLM endpoint, and written into deterministic A-Z markdown files in the vault.
+The service listens for `Hello Obsidian` with a lightweight local Vosk grammar recognizer. Every wake hit is then re-checked on a short buffered audio clip with `faster-whisper`, so false positives do not immediately open the active recording window. Only after that verification step it records a short microphone window and runs active speech recognition for the target word. The recognized word is normalized, enriched through a local LLM endpoint, and written into deterministic A-Z markdown files in the vault.
 
-After the wake phrase, recording is speech-gated: the daemon waits for a real voice signal, keeps a small pre-roll so the first sound is not clipped, and stops after a short silence. This avoids sending long silence/noise windows to Whisper.
+After the verified wake phrase, recording starts immediately and is then trimmed/stopped using WebRTC VAD. This avoids clipping the first syllable while still preventing long silence tails from going into Whisper.
 
 ## Why This Stack
 
-- Wake word: Vosk grammar mode, because it is offline, CPU-light, Linux-friendly, and can recognize the exact phrase `hello obsidian` without training a custom wake-word model.
+- Wake word: Vosk grammar mode plus Whisper verification, because it stays offline and cheap in the background, but adds a stronger second check on each wake candidate without running a heavy model continuously.
 - Active STT: faster-whisper, because Whisper quality is better for the short post-wake window and the model is loaded lazily.
 - LLM: adapter-based local HTTP integration. The default is Ollama with `gpt-oss:20b`; OpenAI-compatible endpoints are also supported.
 - Service model: `systemd --user`, because this is a desktop microphone workflow and should run in the logged-in user session with PipeWire/PortAudio access.
@@ -98,9 +98,13 @@ Important values:
 - `wake.phrase`: default `hello obsidian`
 - `wake.phrase_variants`: extra local grammar phrases such as `hey obsidian`
 - `wake.model_path`: local Vosk model path
+- `wake.verify_with_stt`: run a second Whisper verification pass on the wake clip
+- `wake.verify_buffer_seconds`: how much recent wake audio is kept for verification
+- `wake.verify_post_roll_seconds`: extra tail kept after the wake hit before verification
+- `wake.cooldown_seconds`: reject clustered duplicate wake hits
 - `audio.device`: input device name/index. On this machine it stays empty and PipeWire default source is set to HyperX SoloCast; raw ALSA index `0` rejects 16000 Hz.
 - `audio.active_window_seconds`: post-wake recording window
-- `audio.speech_*`: energy gate for the post-wake speech window
+- `audio.speech_*`: early-stop and trim settings for the post-wake speech window
 - `words.max_candidates`: maximum distinct vocabulary words accepted from one active recording. Default `1` rejects noisy multi-word recognitions instead of saving the wrong word.
 - `words.singularize_simple_plurals`: converts simple plural recognitions such as `elephants` to `elephant`
 - `feedback.hyprctl_notify`: safe Hyprland popup feedback without `swaync`
@@ -132,11 +136,19 @@ Check that the configured microphone is producing signal:
 .venv/bin/obsidian-voice-vocab --foreground mic-test --seconds 3
 ```
 
+Wait for one wake phrase and print both the cheap detector result and the Whisper verification result:
+
+```bash
+.venv/bin/obsidian-voice-vocab --foreground wake-test
+```
+
 Record and transcribe the same active speech window used after wake, without writing to Obsidian:
 
 ```bash
 .venv/bin/obsidian-voice-vocab --foreground record-test
 ```
+
+If the active recognizer still feels weak on single words, start by checking that `whisper_model` is at least `small.en` in the config. The daemon now also runs a second, more focused Whisper pass for one-word vocabulary commands when the first transcript is too verbose.
 
 Test local feedback without using the notification daemon:
 
@@ -229,7 +241,7 @@ Feedback uses:
 - `hyprctl notify` for Hyprland-native popups
 - `pw-play` or `paplay` for local sound cues
 
-The service emits feedback when it starts listening, detects the wake phrase, rejects speech, hits an error, or writes a word successfully.
+The service emits feedback when it starts listening, detects the wake phrase, rejects a false wake, rejects speech, hits an error, or writes a word successfully.
 
 ## Markdown Format
 

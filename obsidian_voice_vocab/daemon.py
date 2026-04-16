@@ -30,7 +30,9 @@ class VoiceVocabularyDaemon:
     self.feedback.ready()
     while True:
       try:
-        self.listener.wait()
+        detection = self.listener.wait()
+        if not self._verify_wake(detection):
+          continue
         self.feedback.wake()
         self._handle_activation()
       except KeyboardInterrupt:
@@ -42,6 +44,39 @@ class VoiceVocabularyDaemon:
       if once:
         LOG.info("single activation mode completed")
         return
+
+  def _verify_wake(self, detection) -> bool:
+    if not self.config.wake.verify_with_stt:
+      try:
+        detection.wav_path.unlink(missing_ok=True)
+      except OSError as exc:
+        LOG.warning("failed to delete wake clip %s: %s", detection.wav_path, exc)
+      return True
+    try:
+      matched, verified_text = self.transcriber.verify_wake_phrase(detection.wav_path, self.listener.phrases)
+      if matched:
+        LOG.info(
+          "wake verification accepted source=%r verified=%r via_partial=%s wav=%s",
+          detection.text,
+          verified_text,
+          detection.via_partial,
+          detection.wav_path,
+        )
+        return True
+      LOG.warning(
+        "wake verification rejected source=%r verified=%r via_partial=%s wav=%s",
+        detection.text,
+        verified_text,
+        detection.via_partial,
+        detection.wav_path,
+      )
+      self.feedback.wake_rejected(_short_reason(verified_text or "phrase mismatch"))
+      return False
+    finally:
+      try:
+        detection.wav_path.unlink(missing_ok=True)
+      except OSError as exc:
+        LOG.warning("failed to delete wake clip %s: %s", detection.wav_path, exc)
 
   def _handle_activation(self) -> None:
     wav_path = self.recorder.record_wav(self.config.audio.active_window_seconds)
@@ -113,4 +148,4 @@ def active_command_words(config: AppConfig) -> tuple[str, ...]:
   wake_words: list[str] = []
   for phrase in (*config.wake.phrase_variants, config.wake.phrase):
     wake_words.extend(part for part in phrase.lower().replace("-", " ").split() if part)
-  return tuple(dict.fromkeys((*config.words.command_words, *wake_words)))
+  return tuple(dict.fromkeys((*config.words.command_words, *config.words.ignored_words, *wake_words)))
