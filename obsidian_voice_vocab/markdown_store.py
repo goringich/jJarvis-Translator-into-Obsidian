@@ -18,7 +18,7 @@ ENTRY_RE = re.compile(
   r'<!-- ovv:entry word="(?P<word>[^"]+)" -->\n(?P<body>.*?)\n<!-- /ovv:entry -->',
   re.DOTALL,
 )
-FIELD_RE_TEMPLATE = r"^\s+- {field}:\s*(?P<value>.*?)\s*$"
+FIELD_RE_TEMPLATE = r"^[^\S\r\n]*- {field}:[^\S\r\n]*(?P<value>[^\r\n]*)[^\S\r\n]*$"
 
 
 @dataclass(frozen=True)
@@ -215,4 +215,3 @@ def _field(body: str, field: str) -> str:
   if not match:
     return ""
   return single_line(match.group("value"))
-

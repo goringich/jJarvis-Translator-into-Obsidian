@@ -13,7 +13,7 @@ ALPHABET = tuple("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 @dataclass(frozen=True)
 class VaultConfig:
   path: Path = Path("/home/goringich/Desktop/Obsidian")
-  dictionary_folder: str = "English Vocabulary"
+  dictionary_folder: str = "English"
   alphabet_files: tuple[str, ...] = tuple(f"{letter}.md" for letter in ALPHABET)
 
 
@@ -52,7 +52,7 @@ class SttConfig:
 class LlmConfig:
   provider: str = "ollama"
   endpoint: str = "http://127.0.0.1:11434"
-  model: str = "gpt-oss:20b"
+  model: str = "qwen2.5:1.5b"
   timeout_seconds: float = 20.0
   temperature: float = 0.2
   max_tokens: int = 180

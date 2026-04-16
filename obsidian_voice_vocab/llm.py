@@ -40,28 +40,38 @@ class OllamaAdapter(BaseLlmAdapter):
     self.config = config
 
   def generate(self, word: str) -> GeneratedEntry:
-    prompt = build_prompt(word)
-    payload = {
-      "model": self.config.model,
-      "stream": False,
-      "options": {
-        "temperature": self.config.temperature,
-        "num_predict": self.config.max_tokens,
-      },
-      "messages": [
-        {
-          "role": "system",
-          "content": "You produce strict two-line vocabulary data and no extra text.",
+    last_error: Exception | None = None
+    for prompt in (build_prompt(word), build_retry_prompt(word)):
+      payload = {
+        "model": self.config.model,
+        "stream": False,
+        "format": "json",
+        "options": {
+          "temperature": self.config.temperature,
+          "num_predict": self.config.max_tokens,
         },
-        {
-          "role": "user",
-          "content": prompt,
-        },
-      ],
-    }
-    response = _post_json(f"{self.config.endpoint}/api/chat", payload, self.config.timeout_seconds)
-    content = str(response.get("message", {}).get("content", ""))
-    return parse_model_response(word, content)
+        "messages": [
+          {
+            "role": "system",
+            "content": (
+              "Return only valid JSON. The translation value must be Russian. "
+              "The example value must be one simple English sentence."
+            ),
+          },
+          {
+            "role": "user",
+            "content": prompt,
+          },
+        ],
+      }
+      response = _post_json(f"{self.config.endpoint}/api/chat", payload, self.config.timeout_seconds)
+      content = str(response.get("message", {}).get("content", ""))
+      try:
+        return parse_model_response(word, content)
+      except LlmError as exc:
+        last_error = exc
+        LOG.warning("Ollama response rejected for %s, retrying if possible: %s", word, exc)
+    raise LlmError(str(last_error or "Ollama response did not contain usable vocabulary data"))
 
 
 class OpenAICompatibleAdapter(BaseLlmAdapter):
@@ -118,10 +128,23 @@ def generate_with_fallback(adapter: BaseLlmAdapter, config: LlmConfig, word: str
 
 def build_prompt(word: str) -> str:
   return (
-    f'Word: "{word}"\n'
-    "Return exactly two lines, no markdown, no explanations, no numbering:\n"
-    "translation: <short Russian translation of the word>\n"
-    f"example: <one short natural B1-B2 English sentence containing the exact word \"{word}\">"
+    f"English word: {word}\n"
+    "Return JSON only, exactly with these keys:\n"
+    "{{"
+    '"translation":"<short Russian translation in Cyrillic>",'
+    f'"example":"<one short natural B1-B2 English sentence containing the exact word {word}>"'
+    "}}"
+  )
+
+
+def build_retry_prompt(word: str) -> str:
+  return (
+    "Ты переводчик для личного словаря Obsidian.\n"
+    f"Слово: {word}\n"
+    "Ответь только JSON-объектом без markdown и без пояснений.\n"
+    "Поле translation: короткий перевод на русский язык кириллицей.\n"
+    f"Поле example: одно короткое естественное английское предложение со словом {word}.\n"
+    f'Формат: {{"translation":"перевод","example":"I use the word {word} in a sentence."}}'
   )
 
 
@@ -135,12 +158,26 @@ def parse_model_response(word: str, content: str) -> GeneratedEntry:
   example = _clean_field(data.get("example", ""))
   status = "generated"
 
+  if translation and not _looks_like_russian_translation(translation):
+    LOG.warning("Model translation is not a clean Russian translation for %s: %s", word, translation)
+    translation = ""
+
   if not translation:
     status = "llm-partial"
   if example and not _example_contains_word(word, example):
     LOG.warning("Model example does not contain exact word %s: %s", word, example)
     example = ""
     status = "llm-partial" if translation else "llm-failed"
+
+  if not translation:
+    fallback = FALLBACK_TRANSLATIONS.get(word.lower(), "")
+    if fallback:
+      translation = fallback
+      status = "llm-fallback"
+
+  if not example:
+    example = fallback_example(word)
+    status = "llm-fallback" if translation else "llm-failed"
 
   if not translation and not example:
     raise LlmError("model response did not contain usable translation or example")
@@ -150,7 +187,11 @@ def parse_model_response(word: str, content: str) -> GeneratedEntry:
 
 def fallback_for_word(word: str, status: str) -> GeneratedEntry:
   fallback = FALLBACK_TRANSLATIONS.get(word.lower(), "")
-  return GeneratedEntry(translation=fallback, example="", status=status)
+  return GeneratedEntry(translation=fallback, example=fallback_example(word), status=status)
+
+
+def fallback_example(word: str) -> str:
+  return f"I learned the word {word} today."
 
 
 def _post_json(url: str, payload: dict[str, Any], timeout: float) -> dict[str, Any]:
@@ -228,6 +269,12 @@ def _clean_field(value: str) -> str:
 def _example_contains_word(word: str, example: str) -> bool:
   pattern = re.compile(rf"(?<![A-Za-z]){re.escape(word)}(?![A-Za-z])", re.IGNORECASE)
   return bool(pattern.search(example))
+
+
+def _looks_like_russian_translation(text: str) -> bool:
+  if not re.search(r"[А-Яа-яЁё]", text):
+    return False
+  return not bool(re.search(r"[A-Za-z]", text))
 
 
 FALLBACK_TRANSLATIONS = {

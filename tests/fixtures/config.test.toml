@@ -1,6 +1,6 @@
 [vault]
 path = "/tmp/obsidian-voice-vocab-test-vault"
-dictionary_folder = "English Vocabulary"
+dictionary_folder = "English"
 alphabet_files = [
   "A.md", "B.md", "C.md", "D.md", "E.md", "F.md", "G.md", "H.md", "I.md",
   "J.md", "K.md", "L.md", "M.md", "N.md", "O.md", "P.md", "Q.md", "R.md",
@@ -33,7 +33,7 @@ language = "en"
 [llm]
 provider = "none"
 endpoint = "http://127.0.0.1:11434"
-model = "gpt-oss:20b"
+model = "qwen2.5:1.5b"
 timeout_seconds = 2.0
 temperature = 0.2
 max_tokens = 180

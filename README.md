@@ -8,7 +8,7 @@ The service listens for `Hello Obsidian` with a lightweight local Vosk grammar r
 
 - Wake word: Vosk grammar mode, because it is offline, CPU-light, Linux-friendly, and can recognize the exact phrase `hello obsidian` without training a custom wake-word model.
 - Active STT: faster-whisper, because Whisper quality is better for the short post-wake window and the model is loaded lazily.
-- LLM: adapter-based local HTTP integration. The default is Ollama with `gpt-oss:20b`; OpenAI-compatible endpoints are also supported.
+- LLM: adapter-based local HTTP integration. The default is Ollama with `qwen2.5:1.5b`; OpenAI-compatible endpoints are also supported.
 - Service model: `systemd --user`, because this is a desktop microphone workflow and should run in the logged-in user session with PipeWire/PortAudio access.
 
 Checked alternatives before choosing this:
@@ -64,7 +64,7 @@ The installer:
 - creates `.venv`
 - installs the Python package
 - creates `~/.config/obsidian-voice-vocab/config.toml` from `config.example.toml` if missing
-- initializes `/home/goringich/Desktop/Obsidian/English Vocabulary`
+- initializes `/home/goringich/Desktop/Obsidian/English`
 - creates `A.md` through `Z.md`
 - installs and starts `~/.config/systemd/user/obsidian-voice-vocab.service`
 
@@ -99,7 +99,7 @@ Important values:
 - `stt.whisper_model`: faster-whisper model name or local model path
 - `llm.provider`: `ollama`, `openai-compatible`, `openclaw`, or `none`
 - `llm.endpoint`: local endpoint URL
-- `llm.model`: default `gpt-oss:20b`
+- `llm.model`: default `qwen2.5:1.5b`
 - `duplicates.overwrite_existing`: duplicate update policy
 
 ## Foreground Debug Run

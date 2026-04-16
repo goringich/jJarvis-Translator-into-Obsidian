@@ -6,7 +6,7 @@
 path = "/home/goringich/Desktop/Obsidian"
 
 # Managed folder inside the vault.
-dictionary_folder = "English Vocabulary"
+dictionary_folder = "English"
 
 # The application creates and maintains these 26 files.
 alphabet_files = [
@@ -60,7 +60,7 @@ fallback_to_vosk = true
 # `openclaw` uses the OpenAI-compatible /v1/chat/completions route.
 provider = "ollama"
 endpoint = "http://127.0.0.1:11434"
-model = "gpt-oss:20b"
+model = "qwen2.5:1.5b"
 timeout_seconds = 20.0
 temperature = 0.2
 max_tokens = 180

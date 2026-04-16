@@ -36,8 +36,8 @@ class MarkdownStoreTests(unittest.TestCase):
       store.add_or_update(VocabEntry("apple", "яблоко", "An apple is on the table.", "manual"))
       store.add_or_update(VocabEntry("anchor", "якорь", "The anchor is heavy.", "manual"))
 
-      a_text = (Path(tmp) / "vault" / "English Vocabulary" / "A.md").read_text(encoding="utf-8")
-      z_text = (Path(tmp) / "vault" / "English Vocabulary" / "Z.md").read_text(encoding="utf-8")
+      a_text = (Path(tmp) / "vault" / "English" / "A.md").read_text(encoding="utf-8")
+      z_text = (Path(tmp) / "vault" / "English" / "Z.md").read_text(encoding="utf-8")
 
       self.assertIn("1. **anchor**", a_text)
       self.assertIn("2. **apple**", a_text)
@@ -53,7 +53,7 @@ class MarkdownStoreTests(unittest.TestCase):
       store.add_or_update(VocabEntry("stable", "стабильный", "The system is stable.", "manual"))
       result = store.add_or_update(VocabEntry("stable", "устойчивый", "Stable habits help.", "generated"))
 
-      text = (Path(tmp) / "vault" / "English Vocabulary" / "S.md").read_text(encoding="utf-8")
+      text = (Path(tmp) / "vault" / "English" / "S.md").read_text(encoding="utf-8")
       entries = parse_entries(text)
       self.assertFalse(result.created)
       self.assertFalse(result.updated)
@@ -69,7 +69,7 @@ class MarkdownStoreTests(unittest.TestCase):
       store.add_or_update(VocabEntry("stable", "стабильный", "The system is stable.", "manual"))
       result = store.add_or_update(VocabEntry("stable", "устойчивый", "", "generated"))
 
-      text = (Path(tmp) / "vault" / "English Vocabulary" / "S.md").read_text(encoding="utf-8")
+      text = (Path(tmp) / "vault" / "English" / "S.md").read_text(encoding="utf-8")
       entries = parse_entries(text)
       self.assertTrue(result.updated)
       self.assertEqual(entries[0].translation, "устойчивый")
@@ -95,7 +95,7 @@ def _config(tmp: Path, overwrite: bool = False) -> AppConfig:
   vault = tmp / "vault"
   vault.mkdir()
   return AppConfig(
-    vault=VaultConfig(path=vault, dictionary_folder="English Vocabulary"),
+    vault=VaultConfig(path=vault, dictionary_folder="English"),
     duplicates=DuplicateConfig(overwrite_existing=overwrite),
     runtime=RuntimeConfig(log_file=None),
   ).expanded()
