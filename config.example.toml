@@ -1,0 +1,94 @@
+# Obsidian Voice Vocabulary config.
+# Copy to ~/.config/obsidian-voice-vocab/config.toml and edit values there.
+
+[vault]
+# Main Obsidian vault path.
+path = "/home/goringich/Desktop/Obsidian"
+
+# Managed folder inside the vault.
+dictionary_folder = "English Vocabulary"
+
+# The application creates and maintains these 26 files.
+alphabet_files = [
+  "A.md", "B.md", "C.md", "D.md", "E.md", "F.md", "G.md", "H.md", "I.md",
+  "J.md", "K.md", "L.md", "M.md", "N.md", "O.md", "P.md", "Q.md", "R.md",
+  "S.md", "T.md", "U.md", "V.md", "W.md", "X.md", "Y.md", "Z.md",
+]
+
+[duplicates]
+# false: keep existing non-empty translation/example.
+# true: overwrite existing fields only when new generated/manual fields are non-empty.
+overwrite_existing = false
+
+[audio]
+# Vosk and Whisper work best with 16000 Hz mono speech input.
+sample_rate = 16000
+channels = 1
+
+# Empty value means PortAudio default input device.
+# Use `obsidian-voice-vocab doctor --devices` to list devices.
+device = ""
+
+# Smaller blocks react faster; larger blocks reduce callback overhead.
+block_ms = 80
+
+# Seconds recorded after the wake phrase is detected.
+active_window_seconds = 6.0
+
+[wake]
+# Wake phrase is recognized locally by Vosk grammar mode.
+phrase = "hello obsidian"
+provider = "vosk-grammar"
+
+# Download helper installs this model by default:
+# scripts/download-models.sh
+model_path = "~/.local/share/obsidian-voice-vocab/models/vosk-model-small-en-us-0.15"
+
+[stt]
+# Main active-window recognizer. Heavy model is loaded lazily after wake phrase.
+provider = "faster-whisper"
+whisper_model = "base.en"
+whisper_device = "auto"
+whisper_compute_type = "int8"
+language = "en"
+
+# If faster-whisper fails, use the same Vosk model as a lightweight fallback.
+fallback_to_vosk = true
+
+[llm]
+# Supported: ollama, openai-compatible, openclaw, none.
+# `openclaw` uses the OpenAI-compatible /v1/chat/completions route.
+provider = "ollama"
+endpoint = "http://127.0.0.1:11434"
+model = "gpt-oss:20b"
+timeout_seconds = 20.0
+temperature = 0.2
+max_tokens = 180
+
+# If local LLM is down, use a tiny built-in dictionary when possible,
+# otherwise write blank fields with Status: llm-failed.
+fallback_dictionary = true
+
+[words]
+# Command words ignored before selecting the first real English vocabulary word.
+command_words = [
+  "add",
+  "append",
+  "save",
+  "write",
+  "word",
+  "term",
+  "vocabulary",
+  "dictionary",
+  "please",
+  "the",
+  "a",
+  "an",
+  "new",
+]
+allow_hyphenated = true
+
+[runtime]
+log_level = "INFO"
+log_file = "~/.local/state/obsidian-voice-vocab/daemon.log"
+

@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "obsidian-voice-vocab"
+version = "0.1.0"
+description = "Local wake-word driven Obsidian English vocabulary daemon for Linux."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "goringich" }
+]
+dependencies = [
+  "faster-whisper>=1.0.3",
+  "numpy>=1.24",
+  "sounddevice>=0.4.6",
+  "vosk>=0.3.45"
+]
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8"
+]
+
+[project.scripts]
+obsidian-voice-vocab = "obsidian_voice_vocab.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["obsidian_voice_vocab*"]
+

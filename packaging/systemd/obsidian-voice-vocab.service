@@ -1,0 +1,17 @@
+[Unit]
+Description=Obsidian voice vocabulary wake-word daemon
+Documentation=file:///home/goringich/__home_organized/scripts/obsidian-voice-vocab/README.md
+After=default.target sound.target pipewire.service pipewire-pulse.service
+Wants=pipewire.service
+
+[Service]
+Type=simple
+WorkingDirectory=/home/goringich/__home_organized/scripts/obsidian-voice-vocab
+ExecStart=/home/goringich/__home_organized/scripts/obsidian-voice-vocab/.venv/bin/obsidian-voice-vocab --config /home/goringich/.config/obsidian-voice-vocab/config.toml daemon
+Restart=on-failure
+RestartSec=5s
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=default.target
+
