@@ -110,6 +110,9 @@ Important values:
 - `feedback.hyprctl_notify`: safe Hyprland popup feedback without `swaync`
 - `feedback.sound`: short local sounds for ready/wake/success/error
 - `feedback.notify_send`: disabled by default because it can activate the notification daemon
+- `feedback.rejection_interval_seconds`: rate limit for noisy false-wake popups
+- `feedback.dedupe_window_seconds`: suppress identical repeated notifications
+- `feedback.show_wake_rejections`: keep false-wake popups visible but throttled; set `false` to log only
 - `stt.whisper_model`: faster-whisper model name or local model path
 - `llm.provider`: `ollama`, `openai-compatible`, `openclaw`, or `none`
 - `llm.endpoint`: local endpoint URL
@@ -241,7 +244,7 @@ Feedback uses:
 - `hyprctl notify` for Hyprland-native popups
 - `pw-play` or `paplay` for local sound cues
 
-The service emits feedback when it starts listening, detects the wake phrase, rejects a false wake, rejects speech, hits an error, or writes a word successfully.
+The service emits feedback when it starts listening, detects the wake phrase, rejects a false wake, rejects speech, hits an error, or writes a word successfully. Rejection popups are rate-limited so background audio cannot flood Hyprland notifications.
 
 ## Markdown Format
 

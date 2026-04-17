@@ -32,8 +32,8 @@ model_path = "/tmp/obsidian-voice-vocab-test-vosk"
 require_exact_match = true
 partial_confirmation_count = 2
 verify_with_stt = true
-verify_buffer_seconds = 1.8
-verify_post_roll_seconds = 0.35
+verify_buffer_seconds = 2.8
+verify_post_roll_seconds = 0.75
 verify_whisper_model = ""
 cooldown_seconds = 1.2
 
@@ -53,6 +53,16 @@ timeout_seconds = 2.0
 temperature = 0.2
 max_tokens = 180
 fallback_dictionary = true
+
+[feedback]
+hyprctl_notify = true
+sound = false
+notify_send = false
+timeout_ms = 3500
+min_interval_seconds = 2.0
+rejection_interval_seconds = 30.0
+dedupe_window_seconds = 45.0
+show_wake_rejections = true
 
 [words]
 command_words = ["please", "add", "word"]

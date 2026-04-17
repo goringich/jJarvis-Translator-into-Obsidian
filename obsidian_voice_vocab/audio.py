@@ -98,7 +98,13 @@ class AudioRecorder:
           level = _level_for_chunk(data)
           max_rms = max(max_rms, level.rms)
           max_peak = max(max_peak, level.peak)
-          is_voiced = vad.is_speech(data, sample_rate)
+          is_voiced = (
+            vad.is_speech(data, sample_rate)
+            and (
+              level.rms >= self.config.audio.speech_rms_threshold
+              or level.peak >= self.config.audio.speech_peak_threshold
+            )
+          )
           chunks.append(data)
           index = len(chunks) - 1
           if is_voiced:
@@ -327,7 +333,7 @@ class SpeechTranscriber:
     primary = self._transcribe_whisper_with_options(
       wav_path,
       model_name=self.config.stt.whisper_model,
-      prompt="Transcribe a single English vocabulary word or a very short English phrase.",
+      prompt=None,
       beam_size=5,
       best_of=5,
       vad_filter=True,
@@ -337,7 +343,7 @@ class SpeechTranscriber:
     focused = self._transcribe_whisper_with_options(
       wav_path,
       model_name=self.config.stt.whisper_model,
-      prompt="Return only the spoken English vocabulary word. Prefer one word over a sentence.",
+      prompt=None,
       beam_size=6,
       best_of=6,
       vad_filter=False,
@@ -352,7 +358,7 @@ class SpeechTranscriber:
     text = self._transcribe_whisper_with_options(
       wav_path,
       model_name=model_name,
-      prompt=f"Transcribe the wake phrase exactly if spoken: {phrases[0]}.",
+      prompt=None,
       beam_size=2,
       best_of=2,
       vad_filter=False,
@@ -373,7 +379,7 @@ class SpeechTranscriber:
     self,
     wav_path: Path,
     model_name: str,
-    prompt: str,
+    prompt: str | None,
     beam_size: int,
     best_of: int,
     vad_filter: bool,
@@ -400,7 +406,6 @@ class SpeechTranscriber:
       best_of=best_of,
       vad_filter=vad_filter,
       condition_on_previous_text=False,
-      initial_prompt=prompt,
       temperature=0.0,
     )
     text = " ".join(segment.text.strip() for segment in segments).strip()

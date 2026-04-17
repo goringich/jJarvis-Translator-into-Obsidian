@@ -18,9 +18,11 @@ class MarkdownStoreTests(unittest.TestCase):
     self.assertEqual(config.audio.vad_mode, 2)
     self.assertEqual(config.audio.vad_frame_ms, 30)
     self.assertTrue(config.wake.verify_with_stt)
-    self.assertAlmostEqual(config.wake.verify_buffer_seconds, 1.8)
-    self.assertAlmostEqual(config.wake.verify_post_roll_seconds, 0.35)
+    self.assertAlmostEqual(config.wake.verify_buffer_seconds, 2.8)
+    self.assertAlmostEqual(config.wake.verify_post_roll_seconds, 0.75)
     self.assertAlmostEqual(config.wake.cooldown_seconds, 1.2)
+    self.assertAlmostEqual(config.feedback.rejection_interval_seconds, 30.0)
+    self.assertAlmostEqual(config.feedback.dedupe_window_seconds, 45.0)
 
   def test_render_parse_round_trip_sorted(self) -> None:
     rendered = render_file(

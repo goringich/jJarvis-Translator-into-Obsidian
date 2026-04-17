@@ -47,6 +47,10 @@ class FeedbackConfig:
   sound: bool = True
   notify_send: bool = False
   timeout_ms: int = 3500
+  min_interval_seconds: float = 2.0
+  rejection_interval_seconds: float = 30.0
+  dedupe_window_seconds: float = 45.0
+  show_wake_rejections: bool = True
   ready_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/service-login.oga")
   wake_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/message-new-instant.oga")
   success_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/complete.oga")
@@ -62,8 +66,8 @@ class WakeConfig:
   require_exact_match: bool = True
   partial_confirmation_count: int = 2
   verify_with_stt: bool = True
-  verify_buffer_seconds: float = 1.8
-  verify_post_roll_seconds: float = 0.35
+  verify_buffer_seconds: float = 2.8
+  verify_post_roll_seconds: float = 0.75
   verify_whisper_model: str = ""
   cooldown_seconds: float = 1.2
 
@@ -200,6 +204,10 @@ class AppConfig:
         sound=_bool(raw, "feedback", "sound", default=FeedbackConfig.sound),
         notify_send=_bool(raw, "feedback", "notify_send", default=FeedbackConfig.notify_send),
         timeout_ms=_int(raw, "feedback", "timeout_ms", default=FeedbackConfig.timeout_ms),
+        min_interval_seconds=_float(raw, "feedback", "min_interval_seconds", default=FeedbackConfig.min_interval_seconds),
+        rejection_interval_seconds=_float(raw, "feedback", "rejection_interval_seconds", default=FeedbackConfig.rejection_interval_seconds),
+        dedupe_window_seconds=_float(raw, "feedback", "dedupe_window_seconds", default=FeedbackConfig.dedupe_window_seconds),
+        show_wake_rejections=_bool(raw, "feedback", "show_wake_rejections", default=FeedbackConfig.show_wake_rejections),
         ready_sound=_path(raw, "feedback", "ready_sound", default=FeedbackConfig.ready_sound),
         wake_sound=_path(raw, "feedback", "wake_sound", default=FeedbackConfig.wake_sound),
         success_sound=_path(raw, "feedback", "success_sound", default=FeedbackConfig.success_sound),
@@ -262,6 +270,10 @@ class AppConfig:
         sound=self.feedback.sound,
         notify_send=self.feedback.notify_send,
         timeout_ms=self.feedback.timeout_ms,
+        min_interval_seconds=self.feedback.min_interval_seconds,
+        rejection_interval_seconds=self.feedback.rejection_interval_seconds,
+        dedupe_window_seconds=self.feedback.dedupe_window_seconds,
+        show_wake_rejections=self.feedback.show_wake_rejections,
         ready_sound=_expand(self.feedback.ready_sound),
         wake_sound=_expand(self.feedback.wake_sound),
         success_sound=_expand(self.feedback.success_sound),
