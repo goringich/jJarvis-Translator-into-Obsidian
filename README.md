@@ -234,6 +234,12 @@ Enable autostart:
 systemctl --user enable obsidian-voice-vocab.service
 ```
 
+Autostart behavior:
+
+- the installed unit now waits for a real Wayland/Hyprland session before launching the Python daemon
+- it first tries `~/.config/hypr/session.env` and then falls back to runtime discovery under `/run/user/$UID`
+- this avoids the common “enabled, but started too early for the desktop session” failure mode on custom Hyprland launch flows
+
 Restart:
 
 ```bash

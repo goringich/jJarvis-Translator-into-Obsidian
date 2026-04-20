@@ -27,6 +27,7 @@ fi
 python3 -m venv "$PROJECT_DIR/.venv"
 "$PROJECT_DIR/.venv/bin/python" -m pip install --upgrade pip setuptools wheel
 "$PROJECT_DIR/.venv/bin/python" -m pip install -e "$PROJECT_DIR"
+chmod +x "$PROJECT_DIR/scripts/run-daemon-session.sh"
 
 install -d "$CONFIG_DIR"
 if [[ ! -f "$CONFIG_PATH" ]]; then
@@ -60,4 +61,3 @@ printf 'Installed obsidian-voice-vocab.\n'
 printf 'Config: %s\n' "$CONFIG_PATH"
 printf 'Unit:   %s\n' "$UNIT_PATH"
 printf 'Logs:   journalctl --user -u obsidian-voice-vocab.service -f\n'
-
