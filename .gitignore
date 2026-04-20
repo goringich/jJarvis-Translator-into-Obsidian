@@ -1,4 +1,5 @@
 .venv/
+.venv-wakeword/
 __pycache__/
 *.py[cod]
 .pytest_cache/
