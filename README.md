@@ -2,9 +2,9 @@
 
 Local Arch Linux daemon for adding English words to an Obsidian vault by voice.
 
-The service listens for `Hello Obsidian` with a lightweight local Vosk grammar recognizer. Every wake hit is then re-checked on a short buffered audio clip with `faster-whisper`, so false positives do not immediately open the active recording window. Only after that verification step it records a short microphone window and runs active speech recognition for the target word. The recognized word is normalized, enriched through a local LLM endpoint, and written into deterministic A-Z markdown files in the vault.
+The service listens for `Hello Obsidian` with a lightweight local Vosk grammar recognizer. Every wake hit is then re-checked on a short buffered audio clip with `faster-whisper`, so false positives do not immediately open the active recording window. Only after that verification step it records a short microphone window and runs active speech recognition for the target word. The recognized word is written into deterministic A-Z markdown files in the vault immediately, and the slower LLM translation/example enrichment now runs in the background.
 
-After the verified wake phrase, recording starts immediately and is then trimmed/stopped using WebRTC VAD. This avoids clipping the first syllable while still preventing long silence tails from going into Whisper.
+After the verified wake phrase, recording starts immediately and is then trimmed/stopped using WebRTC VAD. This avoids clipping the first syllable while still preventing long silence tails from going into Whisper. Wake verification also now uses a shorter clip plus a prompted Whisper pass, which reduces the chance that random trailing speech dominates the verification transcript.
 
 ## Why This Stack
 
@@ -16,14 +16,18 @@ After the verified wake phrase, recording starts immediately and is then trimmed
 Checked alternatives before choosing this:
 
 - openWakeWord: good offline wake-word framework, but `Hello Obsidian` requires a trained/custom model.
+- sherpa-onnx KWS: strong offline stack with many deployment targets, but it is a larger migration than this project currently needs.
 - Picovoice Porcupine: strong wake-word engine, but custom keywords and access-key flow add friction for a fully local default.
 - Continuous Whisper: simpler to code, but too heavy for an always-on daemon.
+- Silero VAD: stronger neural VAD than raw WebRTC VAD, but not yet needed after the current wake/recording tuning.
 
 Relevant upstream projects:
 
 - Vosk: <https://github.com/alphacep/vosk-api>
 - faster-whisper: <https://github.com/SYSTRAN/faster-whisper>
 - openWakeWord: <https://github.com/dscripka/openWakeWord>
+- sherpa-onnx: <https://github.com/k2-fsa/sherpa-onnx>
+- Silero VAD: <https://github.com/snakers4/silero-vad>
 
 ## Project Layout
 
@@ -119,6 +123,11 @@ Important values:
 - `llm.model`: default `gpt-oss:20b`
 - `duplicates.overwrite_existing`: duplicate update policy
 
+Behavior note:
+
+- voice mode now writes the recognized word immediately with `Status: queued` and lets the LLM refine it in the background
+- hotkey/selection mode can do the same with `--no-generate`, so the visible save path stays sub-second even when `gpt-oss:20b` is slow
+
 ## Foreground Debug Run
 
 Initialize files:
@@ -197,6 +206,20 @@ Skip LLM:
 .venv/bin/obsidian-voice-vocab --foreground add-word sustainable --no-generate
 ```
 
+Add the currently selected word from Wayland and open the saved entry in Obsidian:
+
+```bash
+.venv/bin/obsidian-voice-vocab --foreground add-selection --clipboard auto --open-obsidian
+```
+
+The helper script used by the Hyprland hotkey does the same:
+
+```bash
+./scripts/add-selected-word.sh
+```
+
+If the Obsidian community plugin `obsidian-advanced-uri` is installed, the command jumps to the exact saved word block. Otherwise it falls back to opening the correct `English/<LETTER>.md` file.
+
 ## systemd User Service
 
 Start:
@@ -262,6 +285,7 @@ Each letter file is fully regenerated in this stable format:
    - Translation: устойчивый
    - Example: Sustainable habits can improve everyday life.
    - Status: generated
+   ^ovv-sustainable
 <!-- /ovv:entry -->
 
 <!-- ovv:end -->

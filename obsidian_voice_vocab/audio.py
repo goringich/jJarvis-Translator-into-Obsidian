@@ -4,10 +4,12 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 from collections import deque
 from dataclasses import dataclass
+from difflib import SequenceMatcher
 import json
 import logging
 import math
 import queue
+import re
 import time
 import wave
 
@@ -333,7 +335,7 @@ class SpeechTranscriber:
     primary = self._transcribe_whisper_with_options(
       wav_path,
       model_name=self.config.stt.whisper_model,
-      prompt=None,
+      prompt="One spoken English vocabulary word. Prefer a single word over a sentence.",
       beam_size=5,
       best_of=5,
       vad_filter=True,
@@ -343,7 +345,7 @@ class SpeechTranscriber:
     focused = self._transcribe_whisper_with_options(
       wav_path,
       model_name=self.config.stt.whisper_model,
-      prompt=None,
+      prompt="Single English word.",
       beam_size=6,
       best_of=6,
       vad_filter=False,
@@ -355,25 +357,35 @@ class SpeechTranscriber:
 
   def verify_wake_phrase(self, wav_path: Path, phrases: tuple[str, ...]) -> tuple[bool, str]:
     model_name = self.config.wake.verify_whisper_model or self.config.stt.whisper_model
-    text = self._transcribe_whisper_with_options(
-      wav_path,
-      model_name=model_name,
-      prompt=None,
-      beam_size=2,
-      best_of=2,
-      vad_filter=False,
-    )
-    normalized = _normalize_phrase(text)
-    matched = any(
-      normalized == phrase
-      or normalized.endswith(phrase)
-      or normalized.startswith(phrase)
-      for phrase in phrases
-    )
-    if not matched and normalized:
-      matched = any(phrase in normalized for phrase in phrases)
-    LOG.info("wake verification model=%s text=%r matched=%s", model_name, text, matched)
-    return matched, text
+    prompt = _build_wake_verification_prompt(phrases)
+    best_text = ""
+    best_score = 0.0
+    for vad_filter, beam_size, best_of in ((True, 1, 1), (False, 2, 2)):
+      text = self._transcribe_whisper_with_options(
+        wav_path,
+        model_name=model_name,
+        prompt=prompt,
+        beam_size=beam_size,
+        best_of=best_of,
+        vad_filter=vad_filter,
+      )
+      normalized = _normalize_phrase(text)
+      score = max((_wake_phrase_score(normalized, phrase) for phrase in phrases), default=0.0)
+      if score > best_score:
+        best_score = score
+        best_text = text
+      matched = any(_wake_phrase_matches(normalized, phrase) for phrase in phrases)
+      LOG.info(
+        "wake verification attempt model=%s vad_filter=%s text=%r score=%.3f matched=%s",
+        model_name,
+        vad_filter,
+        text,
+        score,
+        matched,
+      )
+      if matched:
+        return True, text
+    return False, best_text
 
   def _transcribe_whisper_with_options(
     self,
@@ -402,6 +414,7 @@ class SpeechTranscriber:
     segments, info = whisper_model.transcribe(
       str(wav_path),
       language=self.config.stt.language,
+      initial_prompt=prompt or None,
       beam_size=beam_size,
       best_of=best_of,
       vad_filter=vad_filter,
@@ -536,4 +549,63 @@ def _contains_phrase(text: str, phrase: str) -> bool:
 
 
 def _normalize_phrase(text: str) -> str:
-  return " ".join(str(text or "").lower().replace("-", " ").split())
+  cleaned = re.sub(r"[^a-z0-9]+", " ", str(text or "").lower().replace("-", " "))
+  return " ".join(cleaned.split())
+
+
+def _wake_phrase_matches(normalized_text: str, normalized_phrase: str) -> bool:
+  return _wake_phrase_score(normalized_text, normalized_phrase) >= 0.84
+
+
+def _wake_phrase_score(normalized_text: str, normalized_phrase: str) -> float:
+  if not normalized_text or not normalized_phrase:
+    return 0.0
+  if (
+    normalized_text == normalized_phrase
+    or normalized_text.startswith(normalized_phrase)
+    or normalized_text.endswith(normalized_phrase)
+    or normalized_phrase in normalized_text
+  ):
+    return 1.0
+
+  phrase_words = normalized_phrase.split()
+  text_words = normalized_text.split()
+  if not phrase_words or not text_words:
+    return 0.0
+
+  window_size = len(phrase_words)
+  if len(text_words) < window_size:
+    windows = [normalized_text]
+  else:
+    windows = [" ".join(text_words[index:index + window_size]) for index in range(len(text_words) - window_size + 1)]
+
+  best = 0.0
+  for window in windows:
+    overall = SequenceMatcher(None, window, normalized_phrase).ratio()
+    if overall > best:
+      best = overall
+    window_words = window.split()
+    if len(window_words) != window_size:
+      continue
+    token_scores = [_wake_token_score(left, right) for left, right in zip(window_words, phrase_words)]
+    token_average = sum(token_scores) / len(token_scores)
+    if token_average > best:
+      best = token_average
+  return best
+
+
+def _wake_token_score(left: str, right: str) -> float:
+  if left == right:
+    return 1.0
+  if left.startswith(right) or right.startswith(left):
+    return 0.94
+  return SequenceMatcher(None, left, right).ratio()
+
+
+def _build_wake_verification_prompt(phrases: tuple[str, ...]) -> str:
+  joined = ", ".join(dict.fromkeys(phrases))
+  return (
+    "Possible wake phrases: "
+    f"{joined}. "
+    "Prefer those exact words if they are present in the audio."
+  )

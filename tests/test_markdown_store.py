@@ -6,7 +6,7 @@ import re
 import unittest
 
 from obsidian_voice_vocab.config import AppConfig, DuplicateConfig, RuntimeConfig, VaultConfig, WordConfig
-from obsidian_voice_vocab.markdown_store import DictionaryStore, VocabEntry, parse_entries, render_file
+from obsidian_voice_vocab.markdown_store import DictionaryStore, VocabEntry, block_id_for_word, parse_entries, render_file
 from obsidian_voice_vocab.normalizer import extract_word, file_letter_for_word, normalize_word
 from obsidian_voice_vocab.daemon import active_command_words
 
@@ -17,9 +17,12 @@ class MarkdownStoreTests(unittest.TestCase):
     config = AppConfig.load(root / "fixtures" / "config.test.toml")
     self.assertEqual(config.audio.vad_mode, 2)
     self.assertEqual(config.audio.vad_frame_ms, 30)
+    self.assertEqual(config.audio.block_ms, 60)
+    self.assertAlmostEqual(config.audio.speech_rms_threshold, 0.006)
+    self.assertAlmostEqual(config.audio.speech_peak_threshold, 0.020)
     self.assertTrue(config.wake.verify_with_stt)
-    self.assertAlmostEqual(config.wake.verify_buffer_seconds, 2.8)
-    self.assertAlmostEqual(config.wake.verify_post_roll_seconds, 0.75)
+    self.assertAlmostEqual(config.wake.verify_buffer_seconds, 1.4)
+    self.assertAlmostEqual(config.wake.verify_post_roll_seconds, 0.35)
     self.assertAlmostEqual(config.wake.cooldown_seconds, 1.2)
     self.assertAlmostEqual(config.feedback.rejection_interval_seconds, 30.0)
     self.assertAlmostEqual(config.feedback.dedupe_window_seconds, 45.0)
@@ -38,6 +41,8 @@ class MarkdownStoreTests(unittest.TestCase):
     self.assertEqual([entry.word for entry in entries], ["simple", "sustain"])
     self.assertEqual(entries[0].translation, "простой")
     self.assertEqual(entries[1].example, "I sustain my focus.")
+    self.assertIn("^ovv-simple", rendered)
+    self.assertIn("^ovv-sustain", rendered)
 
   def test_store_adds_to_correct_letter_file_and_renumbers(self) -> None:
     with TemporaryDirectory() as tmp:
@@ -88,6 +93,22 @@ class MarkdownStoreTests(unittest.TestCase):
       self.assertEqual(entries[0].translation, "устойчивый")
       self.assertEqual(entries[0].example, "The system is stable.")
 
+  def test_queued_entry_is_promoted_by_background_enrichment(self) -> None:
+    with TemporaryDirectory() as tmp:
+      config = _config(Path(tmp), overwrite=False)
+      store = DictionaryStore(config)
+      store.initialize()
+
+      store.add_or_update(VocabEntry("stable", "стабильный", "This example sentence needs a better context for stable.", "queued"))
+      result = store.add_or_update(VocabEntry("stable", "устойчивый", "Stable habits help.", "generated"))
+
+      text = (Path(tmp) / "vault" / "English" / "S.md").read_text(encoding="utf-8")
+      entries = parse_entries(text)
+      self.assertTrue(result.updated)
+      self.assertEqual(entries[0].translation, "устойчивый")
+      self.assertEqual(entries[0].example, "Stable habits help.")
+      self.assertEqual(entries[0].status, "generated")
+
   def test_letter_and_word_normalization(self) -> None:
     self.assertEqual(normalize_word(" Sustainable! "), "sustainable")
     self.assertEqual(file_letter_for_word("sustainable"), "S")
@@ -131,6 +152,9 @@ class MarkdownStoreTests(unittest.TestCase):
     rendered = render_file("B", [VocabEntry("better"), VocabEntry("basic"), VocabEntry("build")])
     numbers = re.findall(r"^(\d+)\. \*\*", rendered, flags=re.MULTILINE)
     self.assertEqual(numbers, ["1", "2", "3"])
+
+  def test_block_id_is_stable_for_word(self) -> None:
+    self.assertEqual(block_id_for_word("well-being"), "ovv-well-being")
 
 
 def _config(tmp: Path, overwrite: bool = False) -> AppConfig:

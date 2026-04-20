@@ -3,15 +3,17 @@ from __future__ import annotations
 from pathlib import Path
 import argparse
 import logging
+import subprocess
 import sys
 
 from .audio import AudioError, AudioRecorder, SpeechTranscriber, WakeWordListener, list_audio_devices
 from .config import AppConfig, default_config_path
 from .daemon import VoiceVocabularyDaemon, active_command_words
 from .feedback import Feedback
-from .llm import build_adapter, generate_with_fallback
+from .llm import build_adapter, fallback_for_word, generate_with_fallback
 from .logging_setup import setup_logging
-from .markdown_store import DictionaryStore, VocabEntry
+from .markdown_store import DictionaryStore, VocabEntry, read_entries
+from .obsidian_uri import ObsidianUriError, open_dictionary_entry
 from .normalizer import WordExtractionError, extract_word, normalize_word
 
 
@@ -71,7 +73,25 @@ def build_parser() -> argparse.ArgumentParser:
   add_parser.add_argument("--example", default="", help="Manual English example sentence.")
   add_parser.add_argument("--no-generate", action="store_true", help="Do not call the local LLM.")
   add_parser.add_argument("--overwrite", action="store_true", help="Override duplicate policy for this command.")
+  add_parser.add_argument("--open-obsidian", action="store_true", help="Open the saved entry in Obsidian after writing.")
   add_parser.set_defaults(func=cmd_add_word)
+
+  selection_parser = subparsers.add_parser("add-selection", help="Read selected text from Wayland clipboard and add the first English word.")
+  selection_parser.add_argument(
+    "--clipboard",
+    choices=("auto", "primary", "regular"),
+    default="auto",
+    help="Clipboard source. 'auto' tries selected text first, then the normal clipboard.",
+  )
+  selection_parser.add_argument("--no-generate", action="store_true", help="Do not call the local LLM.")
+  selection_parser.add_argument("--overwrite", action="store_true", help="Override duplicate policy for this command.")
+  selection_parser.add_argument("--open-obsidian", action="store_true", help="Open the saved entry in Obsidian after writing.")
+  selection_parser.set_defaults(func=cmd_add_selection)
+
+  enrich_parser = subparsers.add_parser("enrich-word", help="Fill translation/example for an existing word in the background.")
+  enrich_parser.add_argument("word", help="English word to enrich.")
+  enrich_parser.add_argument("--overwrite", action="store_true", help="Replace existing fields when the new values are non-empty.")
+  enrich_parser.set_defaults(func=cmd_enrich_word)
 
   daemon_parser = subparsers.add_parser("daemon", help="Run wake-word listener and vocabulary daemon.")
   daemon_parser.add_argument("--once", action="store_true", help="Exit after one activation cycle.")
@@ -230,28 +250,97 @@ def cmd_llm_test(args: argparse.Namespace, config: AppConfig) -> int:
 
 
 def cmd_add_word(args: argparse.Namespace, config: AppConfig) -> int:
+  result = _add_word_from_text(
+    config=config,
+    text=args.text,
+    translation=args.translation,
+    example=args.example,
+    no_generate=args.no_generate,
+    overwrite=args.overwrite,
+  )
+  print(f"{result.word} -> {result.path}")
+  if args.open_obsidian:
+    _open_in_obsidian(config, result)
+  return 0
+
+
+def cmd_add_selection(args: argparse.Namespace, config: AppConfig) -> int:
+  text = _read_wayland_clipboard(args.clipboard)
+  if not text:
+    raise ValueError(f"{args.clipboard} clipboard is empty")
+  result = _add_word_from_text(
+    config=config,
+    text=text,
+    translation="",
+    example="",
+    no_generate=args.no_generate,
+    overwrite=args.overwrite,
+  )
+  print(f"{result.word} -> {result.path}")
+  if args.open_obsidian:
+    _open_in_obsidian(config, result)
+  return 0
+
+
+def cmd_enrich_word(args: argparse.Namespace, config: AppConfig) -> int:
+  store = DictionaryStore(config)
+  store.initialize()
+  word = normalize_word(args.word, singularize_simple_plurals=config.words.singularize_simple_plurals)
+  existing = _existing_entry_for_word(store, word)
+  if existing and existing.translation and existing.example and not args.overwrite:
+    LOG.info("skip enrich word=%s reason=already-complete", word)
+    print(f"skip: {word} already complete")
+    return 0
+  adapter = build_adapter(config.llm)
+  generated = generate_with_fallback(adapter, config.llm, word)
+  result = store.add_or_update(
+    VocabEntry(
+      word=word,
+      translation=generated.translation,
+      example=generated.example,
+      status=generated.status,
+    ),
+    overwrite_existing=args.overwrite or None,
+  )
+  LOG.info("word enriched word=%s path=%s status=%s", result.word, result.path, generated.status)
+  print(f"enriched: {result.word} -> {result.path}")
+  return 0
+
+
+def _add_word_from_text(
+  *,
+  config: AppConfig,
+  text: str,
+  translation: str,
+  example: str,
+  no_generate: bool,
+  overwrite: bool,
+):
   store = DictionaryStore(config)
   store.initialize()
   try:
     extraction = extract_word(
-      args.text,
+      text,
       command_words=tuple(dict.fromkeys((*config.words.command_words, *config.words.ignored_words))),
       allow_hyphenated=config.words.allow_hyphenated,
       singularize_simple_plurals=config.words.singularize_simple_plurals,
     )
     word = extraction.word
   except WordExtractionError:
-    word = normalize_word(args.text, singularize_simple_plurals=config.words.singularize_simple_plurals)
+    word = normalize_word(text, singularize_simple_plurals=config.words.singularize_simple_plurals)
 
-  translation = args.translation
-  example = args.example
   status = "manual"
-  if not args.no_generate and not (translation and example):
+  if not no_generate and not (translation and example):
     adapter = build_adapter(config.llm)
     generated = generate_with_fallback(adapter, config.llm, word)
     translation = translation or generated.translation
     example = example or generated.example
     status = generated.status
+  elif no_generate and not (translation or example) and config.llm.fallback_dictionary:
+    fallback = fallback_for_word(word, "queued")
+    translation = fallback.translation
+    example = fallback.example
+    status = fallback.status
 
   result = store.add_or_update(
     VocabEntry(
@@ -260,7 +349,7 @@ def cmd_add_word(args: argparse.Namespace, config: AppConfig) -> int:
       example=example,
       status=status,
     ),
-    overwrite_existing=args.overwrite or None,
+    overwrite_existing=overwrite or None,
   )
   LOG.info(
     "word written word=%s path=%s created=%s updated=%s total=%s",
@@ -270,14 +359,53 @@ def cmd_add_word(args: argparse.Namespace, config: AppConfig) -> int:
     result.updated,
     result.count,
   )
-  print(f"{result.word} -> {result.path}")
-  return 0
+  return result
 
 
 def cmd_daemon(args: argparse.Namespace, config: AppConfig) -> int:
   daemon = VoiceVocabularyDaemon(config)
   daemon.run(once=args.once)
   return 0
+
+
+def _read_wayland_clipboard(source: str) -> str:
+  if source == "auto":
+    primary = _read_wayland_clipboard_once("primary", allow_empty=True)
+    return primary or _read_wayland_clipboard_once("regular")
+  return _read_wayland_clipboard_once(source)
+
+
+def _read_wayland_clipboard_once(source: str, allow_empty: bool = False) -> str:
+  command = ["wl-paste", "--no-newline"]
+  if source == "primary":
+    command.append("--primary")
+  try:
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+  except OSError as exc:
+    raise RuntimeError(f"failed to read {source} clipboard via wl-paste: {exc}") from exc
+  if completed.returncode != 0:
+    stderr = " ".join((completed.stderr or "").split())
+    if allow_empty and stderr == "Nothing is copied":
+      return ""
+    raise RuntimeError(stderr or f"wl-paste exited with status {completed.returncode}")
+  return completed.stdout.strip()
+
+
+def _open_in_obsidian(config: AppConfig, result) -> None:
+  try:
+    uri = open_dictionary_entry(config, result)
+  except ObsidianUriError as exc:
+    raise RuntimeError(f"word was saved but could not be opened in Obsidian: {exc}") from exc
+  LOG.info("opened Obsidian entry uri=%s", uri)
+  print(f"opened: {uri}")
+
+
+def _existing_entry_for_word(store: DictionaryStore, word: str):
+  path = store.path_for_word(word)
+  for entry in read_entries(path):
+    if entry.word == word:
+      return entry
+  return None
 
 
 if __name__ == "__main__":

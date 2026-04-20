@@ -27,15 +27,15 @@ class AudioConfig:
   sample_rate: int = 16000
   device: str | int | None = None
   channels: int = 1
-  block_ms: int = 80
+  block_ms: int = 60
   active_window_seconds: float = 6.0
   speech_start_timeout_seconds: float = 4.0
   speech_silence_stop_seconds: float = 1.0
   speech_min_seconds: float = 0.35
   speech_pre_roll_ms: int = 240
   speech_start_blocks: int = 2
-  speech_rms_threshold: float = 0.007
-  speech_peak_threshold: float = 0.025
+  speech_rms_threshold: float = 0.006
+  speech_peak_threshold: float = 0.020
   speech_finish_grace_seconds: float = 0.45
   vad_mode: int = 2
   vad_frame_ms: int = 30
@@ -66,8 +66,8 @@ class WakeConfig:
   require_exact_match: bool = True
   partial_confirmation_count: int = 2
   verify_with_stt: bool = True
-  verify_buffer_seconds: float = 2.8
-  verify_post_roll_seconds: float = 0.75
+  verify_buffer_seconds: float = 1.4
+  verify_post_roll_seconds: float = 0.35
   verify_whisper_model: str = ""
   cooldown_seconds: float = 1.2
 

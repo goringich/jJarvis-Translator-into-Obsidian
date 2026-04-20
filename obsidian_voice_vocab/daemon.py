@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import logging
 import os
+import queue
+import threading
 
 from .audio import AudioRecorder, SpeechTranscriber, WakeWordListener
 from .config import AppConfig
 from .feedback import Feedback
-from .llm import build_adapter, generate_with_fallback
-from .markdown_store import DictionaryStore, VocabEntry
+from .llm import GeneratedEntry, build_adapter, fallback_for_word, generate_with_fallback
+from .markdown_store import DictionaryStore, VocabEntry, read_entries
 from .normalizer import WordExtractionError, extract_word
 
 
@@ -23,6 +25,18 @@ class VoiceVocabularyDaemon:
     self.transcriber = SpeechTranscriber(config)
     self.llm_adapter = build_adapter(config.llm)
     self.feedback = Feedback(config)
+    self._enrich_queue: queue.Queue[str] = queue.Queue()
+    self._enrich_pending: set[str] = set()
+    self._enrich_lock = threading.Lock()
+    if self._llm_background_enabled():
+      self._enrich_thread = threading.Thread(
+        target=self._enrichment_loop,
+        name="obsidian-voice-vocab-enrich",
+        daemon=True,
+      )
+      self._enrich_thread.start()
+    else:
+      self._enrich_thread = None
 
   def run(self, once: bool = False) -> None:
     self.store.initialize()
@@ -101,22 +115,7 @@ class VoiceVocabularyDaemon:
       else:
         LOG.info("recognized word=%s source=%r", extraction.word, extraction.source_text)
 
-      generated = generate_with_fallback(self.llm_adapter, self.config.llm, extraction.word)
-      LOG.info(
-        "generated entry word=%s translation=%r example=%r status=%s",
-        extraction.word,
-        generated.translation,
-        generated.example,
-        generated.status,
-      )
-      result = self.store.add_or_update(
-        VocabEntry(
-          word=extraction.word,
-          translation=generated.translation,
-          example=generated.example,
-          status=generated.status,
-        )
-      )
+      result = self._write_word_fast(extraction.word)
       LOG.info(
         "dictionary write complete word=%s letter=%s path=%s created=%s updated=%s total=%s",
         result.word,
@@ -135,6 +134,94 @@ class VoiceVocabularyDaemon:
         wav_path.unlink(missing_ok=True)
       except OSError as exc:
         LOG.warning("failed to delete temporary audio file %s: %s", wav_path, exc)
+
+  def _write_word_fast(self, word: str):
+    fast_entry = self._build_fast_entry(word)
+    result = self.store.add_or_update(fast_entry)
+    self._enqueue_enrichment_if_needed(word)
+    return result
+
+  def _build_fast_entry(self, word: str) -> VocabEntry:
+    generated = self._fast_generated_entry(word)
+    LOG.info(
+      "fast entry word=%s translation=%r example=%r status=%s",
+      word,
+      generated.translation,
+      generated.example,
+      generated.status,
+    )
+    return VocabEntry(
+      word=word,
+      translation=generated.translation,
+      example=generated.example,
+      status=generated.status,
+    )
+
+  def _fast_generated_entry(self, word: str) -> GeneratedEntry:
+    if self.config.llm.fallback_dictionary:
+      return fallback_for_word(word, "queued")
+    return GeneratedEntry(translation="", example="", status="queued")
+
+  def _llm_background_enabled(self) -> bool:
+    provider = self.config.llm.provider.lower().replace("_", "-")
+    return provider not in ("none", "disabled", "off")
+
+  def _enqueue_enrichment_if_needed(self, word: str) -> None:
+    if not self._llm_background_enabled():
+      return
+    existing = self._existing_entry(word)
+    if existing and existing.translation and existing.example and existing.status not in ("queued", "llm-failed"):
+      LOG.info("background enrichment skipped word=%s reason=already-complete status=%s", word, existing.status)
+      return
+    with self._enrich_lock:
+      if word in self._enrich_pending:
+        LOG.info("background enrichment skipped word=%s reason=already-pending", word)
+        return
+      self._enrich_pending.add(word)
+    self._enrich_queue.put(word)
+    LOG.info("background enrichment queued word=%s", word)
+
+  def _enrichment_loop(self) -> None:
+    while True:
+      word = self._enrich_queue.get()
+      try:
+        self._enrich_word(word)
+      except Exception as exc:
+        LOG.exception("background enrichment failed word=%s error=%s", word, exc)
+      finally:
+        with self._enrich_lock:
+          self._enrich_pending.discard(word)
+        self._enrich_queue.task_done()
+
+  def _enrich_word(self, word: str) -> None:
+    existing = self._existing_entry(word)
+    if existing and existing.translation and existing.example and existing.status not in ("queued", "llm-failed"):
+      LOG.info("background enrichment skipped word=%s reason=already-complete status=%s", word, existing.status)
+      return
+    generated = generate_with_fallback(self.llm_adapter, self.config.llm, word)
+    result = self.store.add_or_update(
+      VocabEntry(
+        word=word,
+        translation=generated.translation,
+        example=generated.example,
+        status=generated.status,
+      )
+    )
+    LOG.info(
+      "background enrichment finished word=%s path=%s created=%s updated=%s status=%s",
+      result.word,
+      result.path,
+      result.created,
+      result.updated,
+      generated.status,
+    )
+
+  def _existing_entry(self, word: str):
+    path = self.store.path_for_word(word)
+    for entry in read_entries(path):
+      if entry.word == word:
+        return entry
+    return None
 
 
 def _short_reason(text: str, limit: int = 120) -> str:
