@@ -50,7 +50,7 @@ class FeedbackConfig:
   min_interval_seconds: float = 2.0
   rejection_interval_seconds: float = 30.0
   dedupe_window_seconds: float = 45.0
-  show_wake_rejections: bool = True
+  show_wake_rejections: bool = False
   ready_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/service-login.oga")
   wake_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/message-new-instant.oga")
   success_sound: Path = Path("/usr/share/sounds/freedesktop/stereo/complete.oga")
@@ -63,6 +63,9 @@ class WakeConfig:
   phrase_variants: tuple[str, ...] = ("hello obsidian", "hey obsidian", "okay obsidian")
   provider: str = "vosk-grammar"
   model_path: Path = Path("~/.local/share/obsidian-voice-vocab/models/vosk-model-small-en-us-0.15")
+  openwakeword_model_path: Path = Path("~/.local/share/obsidian-voice-vocab/models/hello_obsidian.onnx")
+  openwakeword_threshold: float = 0.55
+  openwakeword_trigger_level: int = 2
   require_exact_match: bool = True
   partial_confirmation_count: int = 2
   verify_with_stt: bool = True
@@ -218,6 +221,9 @@ class AppConfig:
         phrase_variants=tuple(item.lower() for item in _list(raw, "wake", "phrase_variants", default=list(WakeConfig.phrase_variants))),
         provider=_string(raw, "wake", "provider", default=WakeConfig.provider),
         model_path=_path(raw, "wake", "model_path", default=WakeConfig.model_path),
+        openwakeword_model_path=_path(raw, "wake", "openwakeword_model_path", default=WakeConfig.openwakeword_model_path),
+        openwakeword_threshold=_float(raw, "wake", "openwakeword_threshold", default=WakeConfig.openwakeword_threshold),
+        openwakeword_trigger_level=_int(raw, "wake", "openwakeword_trigger_level", default=WakeConfig.openwakeword_trigger_level),
         require_exact_match=_bool(raw, "wake", "require_exact_match", default=WakeConfig.require_exact_match),
         partial_confirmation_count=_int(raw, "wake", "partial_confirmation_count", default=WakeConfig.partial_confirmation_count),
         verify_with_stt=_bool(raw, "wake", "verify_with_stt", default=WakeConfig.verify_with_stt),

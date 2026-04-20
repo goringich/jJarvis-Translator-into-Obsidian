@@ -199,10 +199,15 @@ class WakeWordListener:
     self.phrase = _normalize_phrase(config.wake.phrase)
     self.phrases = tuple(dict.fromkeys(_normalize_phrase(item) for item in config.wake.phrase_variants + (config.wake.phrase,)))
     self.confirmation_count = max(1, config.wake.partial_confirmation_count)
-    if config.wake.provider != "vosk-grammar":
+    if config.wake.provider not in {"vosk-grammar", "openwakeword"}:
       raise AudioError(f"unsupported wake.provider: {config.wake.provider}")
 
   def wait(self) -> WakeDetection:
+    if self.config.wake.provider == "openwakeword":
+      return self._wait_openwakeword()
+    return self._wait_vosk_grammar()
+
+  def _wait_vosk_grammar(self) -> WakeDetection:
     sd = _sounddevice()
     vosk = _vosk()
     model_path = self.config.wake.model_path
@@ -279,6 +284,75 @@ class WakeWordListener:
       raise
     except Exception as exc:
       raise AudioError(f"wake listener failed: {exc}") from exc
+
+  def _wait_openwakeword(self) -> WakeDetection:
+    sd = _sounddevice()
+    np = _numpy()
+    oww_model_cls = _openwakeword_model()
+    model_path = self.config.wake.openwakeword_model_path
+    if not model_path.exists():
+      raise AudioError(f"openWakeWord model path does not exist: {model_path}")
+
+    model = oww_model_cls(wakeword_models=[str(model_path)])
+    audio_queue: queue.Queue[bytes] = queue.Queue()
+    # openWakeWord is designed around 16 kHz PCM frames in 80 ms multiples.
+    blocksize = max(1, int(self.config.audio.sample_rate * 80 / 1000))
+    block_seconds = blocksize / self.config.audio.sample_rate
+    buffer_frames = max(1, int(self.config.wake.verify_buffer_seconds / block_seconds))
+    post_roll_frames = max(1, int(self.config.wake.verify_post_roll_seconds / block_seconds))
+    recent_frames: deque[bytes] = deque(maxlen=buffer_frames)
+    threshold = max(0.0, min(1.0, self.config.wake.openwakeword_threshold))
+    trigger_level = max(1, self.config.wake.openwakeword_trigger_level)
+    consecutive_hits = 0
+    last_detection_at = 0.0
+
+    def callback(indata, frames, time_info, status) -> None:
+      if status:
+        LOG.warning("audio input status during openWakeWord listening: %s", status)
+      data = bytes(indata)
+      audio_queue.put(data)
+
+    LOG.info(
+      "waiting for wake provider=openwakeword model=%s threshold=%.3f trigger_level=%s device=%s",
+      model_path,
+      threshold,
+      trigger_level,
+      self.config.audio.device,
+    )
+    try:
+      with sd.RawInputStream(
+        samplerate=self.config.audio.sample_rate,
+        blocksize=blocksize,
+        dtype="int16",
+        channels=self.config.audio.channels,
+        device=self.config.audio.device,
+        callback=callback,
+      ):
+        while True:
+          data = audio_queue.get()
+          recent_frames.append(data)
+          frame = np.frombuffer(data, dtype=np.int16)
+          prediction = model.predict(frame)
+          score = _max_prediction_score(prediction)
+          if score >= threshold:
+            consecutive_hits += 1
+          else:
+            consecutive_hits = 0
+          if consecutive_hits < trigger_level:
+            continue
+          if time.monotonic() - last_detection_at < self.config.wake.cooldown_seconds:
+            LOG.info("openWakeWord hit ignored by cooldown score=%.3f", score)
+            consecutive_hits = 0
+            continue
+          wav_path = self._capture_detection_clip(audio_queue, recent_frames, post_roll_frames)
+          last_detection_at = time.monotonic()
+          consecutive_hits = 0
+          LOG.info("openWakeWord wake detected score=%.3f wav=%s", score, wav_path)
+          return WakeDetection(text=f"openwakeword:{score:.3f}", wav_path=wav_path, via_partial=False)
+    except KeyboardInterrupt:
+      raise
+    except Exception as exc:
+      raise AudioError(f"openWakeWord listener failed: {exc}") from exc
 
   def _contains_wake_phrase(self, text: str) -> bool:
     normalized = _normalize_phrase(text)
@@ -502,6 +576,22 @@ def _faster_whisper():
   return faster_whisper
 
 
+def _numpy():
+  try:
+    import numpy as np
+  except Exception as exc:
+    raise AudioError("Python package numpy is not installed") from exc
+  return np
+
+
+def _openwakeword_model():
+  try:
+    from openwakeword.model import Model
+  except Exception as exc:
+    raise AudioError("Python package openwakeword is not installed; install the wakeword extra before using wake.provider=openwakeword") from exc
+  return Model
+
+
 def _webrtcvad(mode: int):
   try:
     import _webrtcvad
@@ -609,3 +699,17 @@ def _build_wake_verification_prompt(phrases: tuple[str, ...]) -> str:
     f"{joined}. "
     "Prefer those exact words if they are present in the audio."
   )
+
+
+def _max_prediction_score(prediction: object) -> float:
+  if isinstance(prediction, dict):
+    values = prediction.values()
+  else:
+    values = (prediction,)
+  best = 0.0
+  for value in values:
+    try:
+      best = max(best, float(value))
+    except (TypeError, ValueError):
+      continue
+  return best

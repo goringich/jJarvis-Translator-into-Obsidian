@@ -26,6 +26,7 @@ class FeedbackTests(unittest.TestCase):
     config = AppConfig(
       feedback=FeedbackConfig(
         sound=False,
+        show_wake_rejections=True,
         min_interval_seconds=0.0,
         rejection_interval_seconds=30.0,
         dedupe_window_seconds=45.0,

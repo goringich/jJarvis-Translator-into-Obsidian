@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from obsidian_voice_vocab.audio import _normalize_phrase, _wake_phrase_matches
+from obsidian_voice_vocab.audio import _max_prediction_score, _normalize_phrase, _wake_phrase_matches
 
 
 class AudioWakeMatchingTests(unittest.TestCase):
@@ -20,6 +20,12 @@ class AudioWakeMatchingTests(unittest.TestCase):
 
   def test_wake_phrase_rejects_unrelated_text(self) -> None:
     self.assertFalse(_wake_phrase_matches("come on what you doing", "hello obsidian"))
+
+  def test_max_prediction_score_handles_dicts(self) -> None:
+    self.assertEqual(_max_prediction_score({"hello": 0.25, "obsidian": 0.75}), 0.75)
+
+  def test_max_prediction_score_ignores_non_numeric_values(self) -> None:
+    self.assertEqual(_max_prediction_score({"bad": "x", "good": "0.5"}), 0.5)
 
 
 if __name__ == "__main__":

@@ -7,4 +7,6 @@ dist/
 build/
 *.egg-info/
 config.toml
-
+training/wakeword/data/
+training/wakeword/output/
+training/wakeword/models/

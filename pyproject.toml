@@ -24,6 +24,12 @@ dependencies = [
 test = [
   "pytest>=8"
 ]
+wakeword = [
+  "openwakeword>=0.6.0"
+]
+train = [
+  "livekit-wakeword[train,eval,export]>=0.1.3"
+]
 
 [project.scripts]
 obsidian-voice-vocab = "obsidian_voice_vocab.cli:main"

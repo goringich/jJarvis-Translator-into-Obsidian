@@ -31,7 +31,7 @@ channels = 1
 device = ""
 
 # Smaller blocks react faster; larger blocks reduce callback overhead.
-block_ms = 80
+block_ms = 60
 
 # Seconds recorded after the wake phrase is detected.
 # Recording now starts immediately after wake and is trimmed/stopped when speech ends.
@@ -41,6 +41,8 @@ active_window_seconds = 6.0
 speech_silence_stop_seconds = 1.0
 speech_min_seconds = 0.35
 speech_finish_grace_seconds = 0.45
+speech_rms_threshold = 0.006
+speech_peak_threshold = 0.020
 vad_mode = 2
 vad_frame_ms = 30
 
@@ -49,11 +51,14 @@ vad_frame_ms = 30
 phrase = "hello obsidian"
 phrase_variants = ["hello obsidian", "hey obsidian", "okay obsidian"]
 provider = "vosk-grammar"
+openwakeword_model_path = "~/.local/share/obsidian-voice-vocab/models/hello_obsidian.onnx"
+openwakeword_threshold = 0.55
+openwakeword_trigger_level = 2
 require_exact_match = true
 partial_confirmation_count = 2
 verify_with_stt = true
-verify_buffer_seconds = 2.8
-verify_post_roll_seconds = 0.75
+verify_buffer_seconds = 1.4
+verify_post_roll_seconds = 0.35
 verify_whisper_model = ""
 cooldown_seconds = 1.2
 
@@ -97,7 +102,7 @@ timeout_ms = 3500
 min_interval_seconds = 2.0
 rejection_interval_seconds = 30.0
 dedupe_window_seconds = 45.0
-show_wake_rejections = true
+show_wake_rejections = false
 ready_sound = "/usr/share/sounds/freedesktop/stereo/service-login.oga"
 wake_sound = "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga"
 success_sound = "/usr/share/sounds/freedesktop/stereo/complete.oga"
