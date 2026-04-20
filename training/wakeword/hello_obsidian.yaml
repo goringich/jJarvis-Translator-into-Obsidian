@@ -6,13 +6,17 @@ target_phrases:
 n_samples: 10000
 steps: 50000
 target_fp_per_hour: 0.2
+data_dir: "./data"
+output_dir: "training/wakeword/output"
 
 model:
   model_type: conv_attention
   model_size: small
 
-paths:
-  output_dir: training/wakeword/output/hello_obsidian
-  data_dir: training/wakeword/data/hello_obsidian
-  background_dirs:
-    - ~/.cache/obsidian-voice-vocab/wakeword/datasets/speech_commands_v0.02/_background_noise_
+augmentation:
+  clip_duration: 2.0
+  batch_size: 16
+  rounds: 1
+  background_paths:
+    - ./data/backgrounds
+    - /home/goringich/.cache/obsidian-voice-vocab/wakeword/datasets/speech_commands_v0.02/_background_noise_

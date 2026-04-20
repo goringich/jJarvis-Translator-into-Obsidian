@@ -7,9 +7,10 @@ TRAIN_VENV="${OVV_WAKEWORD_TRAIN_VENV:-.venv-wakeword}"
 
 if ! command -v livekit-wakeword >/dev/null 2>&1; then
   if command -v uv >/dev/null 2>&1; then
-    uv venv --python 3.11 "$TRAIN_VENV"
-    "$TRAIN_VENV/bin/python" -m pip install --upgrade pip
-    "$TRAIN_VENV/bin/python" -m pip install -e ".[train,wakeword]"
+    if [[ ! -x "$TRAIN_VENV/bin/python" ]]; then
+      uv venv --python 3.11 "$TRAIN_VENV"
+    fi
+    uv pip install --python "$TRAIN_VENV/bin/python" -e ".[train,wakeword]"
     export PATH="$PWD/$TRAIN_VENV/bin:$PATH"
   else
     printf 'Missing livekit-wakeword. Install with Python 3.11: python -m pip install -e ".[train,wakeword]"\n' >&2
