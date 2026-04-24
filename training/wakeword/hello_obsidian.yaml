@@ -8,6 +8,11 @@ steps: 50000
 target_fp_per_hour: 0.2
 data_dir: "./data"
 output_dir: "training/wakeword/output"
+batch_n_per_class:
+  positive: 50
+  adversarial_negative: 50
+  ACAV100M_sample: 0
+  background_noise: 50
 
 model:
   model_type: conv_attention

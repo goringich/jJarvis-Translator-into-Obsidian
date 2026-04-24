@@ -4,6 +4,7 @@ set -euo pipefail
 CONFIG="${OVV_WAKEWORD_TRAIN_CONFIG:-training/wakeword/hello_obsidian.yaml}"
 MODEL_DIR="${OVV_WAKEWORD_MODEL_DIR:-training/wakeword/models}"
 TRAIN_VENV="${OVV_WAKEWORD_TRAIN_VENV:-.venv-wakeword}"
+export HF_HUB_DISABLE_XET="${HF_HUB_DISABLE_XET:-1}"
 
 if ! command -v livekit-wakeword >/dev/null 2>&1; then
   if command -v uv >/dev/null 2>&1; then
@@ -19,7 +20,11 @@ if ! command -v livekit-wakeword >/dev/null 2>&1; then
 fi
 
 mkdir -p "$MODEL_DIR"
-livekit-wakeword setup
+if [[ "${OVV_WAKEWORD_SKIP_ACAV:-1}" == "1" ]]; then
+  livekit-wakeword setup --config "$CONFIG" --skip-acav
+else
+  livekit-wakeword setup --config "$CONFIG"
+fi
 livekit-wakeword run "$CONFIG"
 
 found_model="$(find training/wakeword/output -type f \( -name '*.onnx' -o -name '*.tflite' \) | sort | tail -n 1 || true)"
