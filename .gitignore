@@ -12,3 +12,7 @@ data/
 training/wakeword/data/
 training/wakeword/output/
 training/wakeword/models/
+data/piper/*.pt
+data/piper/*.onnx
+data/piper/*.tar.gz
+data/piper/*.zip
