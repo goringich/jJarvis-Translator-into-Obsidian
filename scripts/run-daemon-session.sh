@@ -59,8 +59,8 @@ wait_for_session() {
 }
 
 if ! wait_for_session; then
-  printf 'obsidian-voice-vocab: Wayland session environment did not become ready\n' >&2
-  exit 1
+  printf 'obsidian-voice-vocab: Wayland session environment did not become ready; exiting without restart loop\n' >&2
+  exit 0
 fi
 
 exec "$PROJECT_DIR/.venv/bin/obsidian-voice-vocab" --config "$CONFIG_PATH" daemon

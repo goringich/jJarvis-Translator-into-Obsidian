@@ -4,6 +4,7 @@ import logging
 import os
 import queue
 import threading
+import time
 
 from .audio import AudioRecorder, SpeechTranscriber, WakeWordListener
 from .config import AppConfig
@@ -42,9 +43,11 @@ class VoiceVocabularyDaemon:
     self.store.initialize()
     LOG.info("service started pid=%s vault=%s dictionary=%s", os.getpid(), self.config.vault.path, self.config.dictionary_path)
     self.feedback.ready()
+    consecutive_errors = 0
     while True:
       try:
         detection = self.listener.wait()
+        consecutive_errors = 0
         if not self._verify_wake(detection):
           continue
         self.feedback.wake()
@@ -53,11 +56,16 @@ class VoiceVocabularyDaemon:
         LOG.info("service stopped by keyboard interrupt")
         return
       except Exception as exc:
+        consecutive_errors += 1
         LOG.exception("daemon loop error: %s", exc)
         self.feedback.error(_short_reason(str(exc)))
       if once:
         LOG.info("single activation mode completed")
         return
+      if consecutive_errors:
+        backoff_seconds = min(30.0, 2.0 * consecutive_errors)
+        LOG.warning("daemon loop backing off for %.1fs after %s consecutive error(s)", backoff_seconds, consecutive_errors)
+        time.sleep(backoff_seconds)
 
   def _verify_wake(self, detection) -> bool:
     if not self.config.wake.verify_with_stt:
