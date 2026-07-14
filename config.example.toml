@@ -81,7 +81,7 @@ fallback_to_vosk = true
 # Supported: ollama, openai-compatible, openclaw, none.
 # `openclaw` uses the OpenAI-compatible /v1/chat/completions route.
 provider = "ollama"
-endpoint = "http://127.0.0.1:11434"
+endpoint = "http://172.17.0.1:11434"
 model = "gpt-oss:20b"
 timeout_seconds = 90.0
 temperature = 0.2

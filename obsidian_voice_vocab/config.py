@@ -88,7 +88,7 @@ class SttConfig:
 @dataclass(frozen=True)
 class LlmConfig:
   provider: str = "ollama"
-  endpoint: str = "http://127.0.0.1:11434"
+  endpoint: str = "http://172.17.0.1:11434"
   model: str = "gpt-oss:20b"
   timeout_seconds: float = 90.0
   temperature: float = 0.2
