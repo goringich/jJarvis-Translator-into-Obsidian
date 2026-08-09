@@ -1,0 +1,27 @@
+model_name: hello_obsidian
+target_phrases:
+  - "hello obsidian"
+  - "hey obsidian"
+  - "okay obsidian"
+n_samples: 10000
+steps: 50000
+target_fp_per_hour: 0.2
+data_dir: "./data"
+output_dir: "training/wakeword/output"
+batch_n_per_class:
+  positive: 50
+  adversarial_negative: 50
+  ACAV100M_sample: 0
+  background_noise: 50
+
+model:
+  model_type: conv_attention
+  model_size: small
+
+augmentation:
+  clip_duration: 2.0
+  batch_size: 16
+  rounds: 1
+  background_paths:
+    - ./data/backgrounds
+    - /home/goringich/.cache/obsidian-voice-vocab/wakeword/datasets/speech_commands_v0.02/_background_noise_

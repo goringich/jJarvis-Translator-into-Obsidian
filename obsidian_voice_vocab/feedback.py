@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import shutil
 import subprocess
+import time
 
 from .config import AppConfig
 
@@ -13,12 +14,27 @@ LOG = logging.getLogger(__name__)
 class Feedback:
   def __init__(self, config: AppConfig):
     self.config = config
+    self._last_any_at = 0.0
+    self._last_by_key: dict[str, tuple[float, str]] = {}
 
   def ready(self) -> None:
     self.emit("Voice Vocabulary", "Listening for: Hello Obsidian", "info", "ready")
 
   def wake(self) -> None:
-    self.emit("Voice Vocabulary", "Wake phrase detected. Say one English word.", "hint", "wake")
+    self.emit("Voice Vocabulary", "Wake phrase detected. Say one English word.", "hint", None)
+
+  def wake_rejected(self, reason: str) -> None:
+    if not self.config.feedback.show_wake_rejections:
+      LOG.info("feedback wake rejection suppressed by config reason=%r", reason)
+      return
+    self.emit(
+      "Voice Vocabulary",
+      f"Wake ignored: {reason}",
+      "warning",
+      None,
+      key="wake-rejected",
+      min_interval=self.config.feedback.rejection_interval_seconds,
+    )
 
   def success(self, word: str) -> None:
     self.emit("Voice Vocabulary", f"Added: {word}", "ok", "success")
@@ -29,11 +45,36 @@ class Feedback:
   def error(self, reason: str) -> None:
     self.emit("Voice Vocabulary", f"Error: {reason}", "error", "error")
 
-  def emit(self, title: str, message: str, level: str, sound_name: str) -> None:
+  def emit(
+    self,
+    title: str,
+    message: str,
+    level: str,
+    sound_name: str | None,
+    key: str | None = None,
+    min_interval: float | None = None,
+  ) -> None:
+    if self._is_rate_limited(key or level, message, min_interval):
+      LOG.info("feedback suppressed by rate limit level=%s title=%r message=%r", level, title, message)
+      return
     LOG.info("feedback level=%s title=%r message=%r", level, title, message)
     self._hyprctl(title, message, level)
     self._notify_send(title, message)
     self._sound(sound_name)
+
+  def _is_rate_limited(self, key: str, message: str, min_interval: float | None) -> bool:
+    now = time.monotonic()
+    interval = self.config.feedback.min_interval_seconds if min_interval is None else min_interval
+    last_key_at, last_message = self._last_by_key.get(key, (0.0, ""))
+    if message == last_message and now - last_key_at < self.config.feedback.dedupe_window_seconds:
+      return True
+    if now - last_key_at < interval:
+      return True
+    if now - self._last_any_at < self.config.feedback.min_interval_seconds:
+      return True
+    self._last_any_at = now
+    self._last_by_key[key] = (now, message)
+    return False
 
   def _hyprctl(self, title: str, message: str, level: str) -> None:
     if not self.config.feedback.hyprctl_notify or not shutil.which("hyprctl"):
@@ -68,8 +109,8 @@ class Feedback:
       return
     self._run(["notify-send", "-t", str(self.config.feedback.timeout_ms), title, message])
 
-  def _sound(self, sound_name: str) -> None:
-    if not self.config.feedback.sound:
+  def _sound(self, sound_name: str | None) -> None:
+    if not self.config.feedback.sound or not sound_name:
       return
     path = {
       "ready": self.config.feedback.ready_sound,

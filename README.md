@@ -2,28 +2,33 @@
 
 Local Arch Linux daemon for adding English words to an Obsidian vault by voice.
 
-The service listens for `Hello Obsidian` with a lightweight local Vosk grammar recognizer. Only after the wake phrase it records a short microphone window and runs active speech recognition with `faster-whisper`. The recognized word is normalized, enriched through a local LLM endpoint, and written into deterministic A-Z markdown files in the vault.
+The service listens for `Hello Obsidian` with a lightweight local wake detector. The default Vosk grammar detector is kept as a zero-training fallback. For the reliable path, train a small `hello_obsidian` wake model and set `wake.provider = "openwakeword"`; that avoids turning random speech into wake candidates before Whisper ever runs. The recognized word is written into deterministic A-Z markdown files in the vault immediately, and the slower LLM translation/example enrichment runs in the background.
 
-After the wake phrase, recording is speech-gated: the daemon waits for a real voice signal, keeps a small pre-roll so the first sound is not clipped, and stops after a short silence. This avoids sending long silence/noise windows to Whisper.
+After the verified wake phrase, recording starts immediately and is then trimmed/stopped using WebRTC VAD. This avoids clipping the first syllable while still preventing long silence tails from going into Whisper. Wake verification also now uses a shorter clip plus a prompted Whisper pass, which reduces the chance that random trailing speech dominates the verification transcript.
 
 ## Why This Stack
 
-- Wake word: Vosk grammar mode, because it is offline, CPU-light, Linux-friendly, and can recognize the exact phrase `hello obsidian` without training a custom wake-word model.
+- Wake word: Vosk grammar mode plus Whisper verification as the install-time fallback; trained openWakeWord-compatible model as the target production path.
 - Active STT: faster-whisper, because Whisper quality is better for the short post-wake window and the model is loaded lazily.
 - LLM: adapter-based local HTTP integration. The default is Ollama with `gpt-oss:20b`; OpenAI-compatible endpoints are also supported.
 - Service model: `systemd --user`, because this is a desktop microphone workflow and should run in the logged-in user session with PipeWire/PortAudio access.
 
 Checked alternatives before choosing this:
 
-- openWakeWord: good offline wake-word framework, but `Hello Obsidian` requires a trained/custom model.
+- openWakeWord: good offline wake-word framework; now supported as soon as a custom `Hello Obsidian` model exists locally.
+- sherpa-onnx KWS: strong offline stack with many deployment targets, but it is a larger migration than this project currently needs.
 - Picovoice Porcupine: strong wake-word engine, but custom keywords and access-key flow add friction for a fully local default.
 - Continuous Whisper: simpler to code, but too heavy for an always-on daemon.
+- Silero VAD: stronger neural VAD than raw WebRTC VAD, but not yet needed after the current wake/recording tuning.
 
 Relevant upstream projects:
 
 - Vosk: <https://github.com/alphacep/vosk-api>
 - faster-whisper: <https://github.com/SYSTRAN/faster-whisper>
 - openWakeWord: <https://github.com/dscripka/openWakeWord>
+- sherpa-onnx: <https://github.com/k2-fsa/sherpa-onnx>
+- Silero VAD: <https://github.com/snakers4/silero-vad>
+- livekit-wakeword: <https://pypi.org/project/livekit-wakeword/>
 
 ## Project Layout
 
@@ -41,6 +46,8 @@ obsidian-voice-vocab/
   config.example.toml
   packaging/systemd/
   scripts/
+    wakeword/           # dataset download and wake-word training helpers
+  training/wakeword/    # wake-word training config and docs
   tests/
 ```
 
@@ -98,19 +105,34 @@ Important values:
 - `wake.phrase`: default `hello obsidian`
 - `wake.phrase_variants`: extra local grammar phrases such as `hey obsidian`
 - `wake.model_path`: local Vosk model path
+- `wake.openwakeword_model_path`: local custom wake model path used by `wake.provider = "openwakeword"`
+- `wake.openwakeword_threshold`: detection threshold for the custom wake model
+- `wake.openwakeword_trigger_level`: consecutive above-threshold frames needed before activation
+- `wake.verify_with_stt`: run a second Whisper verification pass on the wake clip
+- `wake.verify_buffer_seconds`: how much recent wake audio is kept for verification
+- `wake.verify_post_roll_seconds`: extra tail kept after the wake hit before verification
+- `wake.cooldown_seconds`: reject clustered duplicate wake hits
 - `audio.device`: input device name/index. On this machine it stays empty and PipeWire default source is set to HyperX SoloCast; raw ALSA index `0` rejects 16000 Hz.
 - `audio.active_window_seconds`: post-wake recording window
-- `audio.speech_*`: energy gate for the post-wake speech window
+- `audio.speech_*`: early-stop and trim settings for the post-wake speech window
 - `words.max_candidates`: maximum distinct vocabulary words accepted from one active recording. Default `1` rejects noisy multi-word recognitions instead of saving the wrong word.
 - `words.singularize_simple_plurals`: converts simple plural recognitions such as `elephants` to `elephant`
 - `feedback.hyprctl_notify`: safe Hyprland popup feedback without `swaync`
 - `feedback.sound`: short local sounds for ready/wake/success/error
 - `feedback.notify_send`: disabled by default because it can activate the notification daemon
+- `feedback.rejection_interval_seconds`: rate limit for noisy false-wake popups
+- `feedback.dedupe_window_seconds`: suppress identical repeated notifications
+- `feedback.show_wake_rejections`: default `false`; false wake rejections are logged but do not spam Hyprland notifications
 - `stt.whisper_model`: faster-whisper model name or local model path
 - `llm.provider`: `ollama`, `openai-compatible`, `openclaw`, or `none`
 - `llm.endpoint`: local endpoint URL
 - `llm.model`: default `gpt-oss:20b`
 - `duplicates.overwrite_existing`: duplicate update policy
+
+Behavior note:
+
+- voice mode now writes the recognized word immediately with `Status: queued` and lets the LLM refine it in the background
+- hotkey/selection mode can do the same with `--no-generate`, so the visible save path stays sub-second even when `gpt-oss:20b` is slow
 
 ## Foreground Debug Run
 
@@ -132,11 +154,19 @@ Check that the configured microphone is producing signal:
 .venv/bin/obsidian-voice-vocab --foreground mic-test --seconds 3
 ```
 
+Wait for one wake phrase and print both the cheap detector result and the Whisper verification result:
+
+```bash
+.venv/bin/obsidian-voice-vocab --foreground wake-test
+```
+
 Record and transcribe the same active speech window used after wake, without writing to Obsidian:
 
 ```bash
 .venv/bin/obsidian-voice-vocab --foreground record-test
 ```
+
+If the active recognizer still feels weak on single words, start by checking that `whisper_model` is at least `small.en` in the config. The daemon now also runs a second, more focused Whisper pass for one-word vocabulary commands when the first transcript is too verbose.
 
 Test local feedback without using the notification daemon:
 
@@ -182,6 +212,46 @@ Skip LLM:
 .venv/bin/obsidian-voice-vocab --foreground add-word sustainable --no-generate
 ```
 
+Add the currently selected word from Wayland and open the saved entry in Obsidian:
+
+```bash
+.venv/bin/obsidian-voice-vocab --foreground add-selection --clipboard auto --open-obsidian
+```
+
+The helper script used by the Hyprland hotkey does the same:
+
+```bash
+./scripts/add-selected-word.sh
+```
+
+If the Obsidian community plugin `obsidian-advanced-uri` is installed, the command jumps to the exact saved word block. Otherwise it falls back to opening the correct `English/<LETTER>.md` file.
+
+## Wake-Word Training
+
+The reliable target path is a custom wake model, not a Vosk grammar partial transcript. The training workflow is documented in `training/wakeword/README.md`.
+
+Quick path:
+
+```bash
+scripts/wakeword/install-training-deps-arch.sh
+python -m pip install -e ".[train,wakeword]"
+scripts/wakeword/download-datasets.sh
+scripts/wakeword/train-livekit-wakeword.sh
+```
+
+Then copy the exported model to `~/.local/share/obsidian-voice-vocab/models/hello_obsidian.onnx` and set:
+
+```toml
+[wake]
+provider = "openwakeword"
+openwakeword_model_path = "~/.local/share/obsidian-voice-vocab/models/hello_obsidian.onnx"
+```
+
+CI is split in two workflows:
+
+- `.github/workflows/ci.yml`: normal push/PR checks.
+- `.github/workflows/wakeword-training.yml`: manual self-hosted training run, because the negative dataset is about 2.3 GiB and training can take hours.
+
 ## systemd User Service
 
 Start:
@@ -195,6 +265,12 @@ Enable autostart:
 ```bash
 systemctl --user enable obsidian-voice-vocab.service
 ```
+
+Autostart behavior:
+
+- the installed unit now waits for a real Wayland/Hyprland session before launching the Python daemon
+- it first tries `~/.config/hypr/session.env` and then falls back to runtime discovery under `/run/user/$UID`
+- this avoids the common “enabled, but started too early for the desktop session” failure mode on custom Hyprland launch flows
 
 Restart:
 
@@ -229,7 +305,7 @@ Feedback uses:
 - `hyprctl notify` for Hyprland-native popups
 - `pw-play` or `paplay` for local sound cues
 
-The service emits feedback when it starts listening, detects the wake phrase, rejects speech, hits an error, or writes a word successfully.
+The service emits feedback when it starts listening, detects the wake phrase, rejects speech, hits an error, or writes a word successfully. False wake rejections are logged by default instead of shown as popups; set `feedback.show_wake_rejections = true` only while debugging the wake detector.
 
 ## Markdown Format
 
@@ -247,6 +323,7 @@ Each letter file is fully regenerated in this stable format:
    - Translation: устойчивый
    - Example: Sustainable habits can improve everyday life.
    - Status: generated
+   ^ovv-sustainable
 <!-- /ovv:entry -->
 
 <!-- ovv:end -->

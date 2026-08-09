@@ -172,6 +172,7 @@ def render_file(letter: str, entries: list[VocabEntry]) -> str:
   ]
   for index, entry in enumerate(normalized_entries, start=1):
     escaped_word = html.escape(entry.word, quote=True)
+    block_id = block_id_for_word(entry.word)
     lines.extend(
       [
         f'<!-- ovv:entry word="{escaped_word}" -->',
@@ -179,6 +180,7 @@ def render_file(letter: str, entries: list[VocabEntry]) -> str:
         f"   - Translation: {single_line(entry.translation)}",
         f"   - Example: {single_line(entry.example)}",
         f"   - Status: {single_line(entry.status)}",
+        f"   ^{block_id}",
         "<!-- /ovv:entry -->",
         "",
       ]
@@ -189,7 +191,7 @@ def render_file(letter: str, entries: list[VocabEntry]) -> str:
 
 
 def merge_entry(existing: VocabEntry, incoming: VocabEntry, overwrite: bool) -> VocabEntry:
-  if overwrite:
+  if overwrite or existing.status in ("queued", "llm-failed"):
     return VocabEntry(
       word=existing.word,
       translation=incoming.translation or existing.translation,
@@ -207,6 +209,12 @@ def merge_entry(existing: VocabEntry, incoming: VocabEntry, overwrite: bool) -> 
 
 def single_line(value: str) -> str:
   return " ".join(str(value or "").replace("\n", " ").split())
+
+
+def block_id_for_word(word: str) -> str:
+  normalized = normalize_word(word)
+  safe = re.sub(r"[^a-z0-9-]+", "-", normalized.lower()).strip("-")
+  return f"ovv-{safe}"
 
 
 def _field(body: str, field: str) -> str:

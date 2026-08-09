@@ -1,4 +1,5 @@
 .venv/
+.venv-wakeword/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -7,4 +8,11 @@ dist/
 build/
 *.egg-info/
 config.toml
-
+data/
+training/wakeword/data/
+training/wakeword/output/
+training/wakeword/models/
+data/piper/*.pt
+data/piper/*.onnx
+data/piper/*.tar.gz
+data/piper/*.zip

@@ -31,27 +31,36 @@ channels = 1
 device = ""
 
 # Smaller blocks react faster; larger blocks reduce callback overhead.
-block_ms = 80
+block_ms = 60
 
 # Seconds recorded after the wake phrase is detected.
-# This is now the maximum speech window; recording stops earlier after speech ends.
+# Recording now starts immediately after wake and is trimmed/stopped when speech ends.
 active_window_seconds = 6.0
 
-# Lightweight energy gate for the active speech window after wake.
-# Tune with `obsidian-voice-vocab record-test` if your room is very quiet/noisy.
-speech_start_timeout_seconds = 4.0
+# Lightweight speech detection is still used for early stop and trimming.
 speech_silence_stop_seconds = 1.0
 speech_min_seconds = 0.35
-speech_pre_roll_ms = 240
-speech_start_blocks = 2
-speech_rms_threshold = 0.007
-speech_peak_threshold = 0.025
+speech_finish_grace_seconds = 0.45
+speech_rms_threshold = 0.006
+speech_peak_threshold = 0.020
+vad_mode = 2
+vad_frame_ms = 30
 
 [wake]
 # Wake phrase is recognized locally by Vosk grammar mode.
 phrase = "hello obsidian"
 phrase_variants = ["hello obsidian", "hey obsidian", "okay obsidian"]
 provider = "vosk-grammar"
+openwakeword_model_path = "~/.local/share/obsidian-voice-vocab/models/hello_obsidian.onnx"
+openwakeword_threshold = 0.55
+openwakeword_trigger_level = 2
+require_exact_match = true
+partial_confirmation_count = 2
+verify_with_stt = true
+verify_buffer_seconds = 1.4
+verify_post_roll_seconds = 0.35
+verify_whisper_model = ""
+cooldown_seconds = 1.2
 
 # Download helper installs this model by default:
 # scripts/download-models.sh
@@ -60,7 +69,7 @@ model_path = "~/.local/share/obsidian-voice-vocab/models/vosk-model-small-en-us-
 [stt]
 # Main active-window recognizer. Heavy model is loaded lazily after wake phrase.
 provider = "faster-whisper"
-whisper_model = "base.en"
+whisper_model = "small.en"
 whisper_device = "cpu"
 whisper_compute_type = "int8"
 language = "en"
@@ -72,7 +81,7 @@ fallback_to_vosk = true
 # Supported: ollama, openai-compatible, openclaw, none.
 # `openclaw` uses the OpenAI-compatible /v1/chat/completions route.
 provider = "ollama"
-endpoint = "http://127.0.0.1:11434"
+endpoint = "http://172.17.0.1:11434"
 model = "gpt-oss:20b"
 timeout_seconds = 90.0
 temperature = 0.2
@@ -90,6 +99,10 @@ sound = true
 # Keep disabled unless you deliberately re-enable a stable notification daemon.
 notify_send = false
 timeout_ms = 3500
+min_interval_seconds = 2.0
+rejection_interval_seconds = 30.0
+dedupe_window_seconds = 45.0
+show_wake_rejections = false
 ready_sound = "/usr/share/sounds/freedesktop/stereo/service-login.oga"
 wake_sound = "/usr/share/sounds/freedesktop/stereo/message-new-instant.oga"
 success_sound = "/usr/share/sounds/freedesktop/stereo/complete.oga"
@@ -111,6 +124,34 @@ command_words = [
   "a",
   "an",
   "new",
+]
+ignored_words = [
+  "and",
+  "or",
+  "but",
+  "oh",
+  "uh",
+  "um",
+  "ah",
+  "eh",
+  "hmm",
+  "in",
+  "on",
+  "at",
+  "of",
+  "to",
+  "for",
+  "from",
+  "with",
+  "by",
+  "into",
+  "onto",
+  "over",
+  "under",
+  "up",
+  "down",
+  "out",
+  "off",
 ]
 allow_hyphenated = true
 max_candidates = 1
