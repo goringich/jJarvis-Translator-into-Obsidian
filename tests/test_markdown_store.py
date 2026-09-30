@@ -5,7 +5,7 @@ from tempfile import TemporaryDirectory
 import re
 import unittest
 
-from obsidian_voice_vocab.config import AppConfig, DuplicateConfig, RuntimeConfig, VaultConfig, WordConfig
+from obsidian_voice_vocab.config import AppConfig, DuplicateConfig, RuntimeConfig, VaultConfig, WakeConfig, WordConfig
 from obsidian_voice_vocab.markdown_store import DictionaryStore, VocabEntry, block_id_for_word, parse_entries, render_file
 from obsidian_voice_vocab.normalizer import extract_word, file_letter_for_word, normalize_word
 from obsidian_voice_vocab.daemon import active_command_words
@@ -26,6 +26,20 @@ class MarkdownStoreTests(unittest.TestCase):
     self.assertAlmostEqual(config.wake.cooldown_seconds, 1.2)
     self.assertAlmostEqual(config.feedback.rejection_interval_seconds, 30.0)
     self.assertAlmostEqual(config.feedback.dedupe_window_seconds, 45.0)
+
+  def test_expanded_config_preserves_openwakeword_settings(self) -> None:
+    config = AppConfig(
+      wake=WakeConfig(
+        openwakeword_model_path=Path("/tmp/custom-hello-obsidian.onnx"),
+        openwakeword_threshold=0.73,
+        openwakeword_trigger_level=4,
+      ),
+      runtime=RuntimeConfig(log_file=None),
+    ).expanded()
+
+    self.assertEqual(config.wake.openwakeword_model_path, Path("/tmp/custom-hello-obsidian.onnx"))
+    self.assertAlmostEqual(config.wake.openwakeword_threshold, 0.73)
+    self.assertEqual(config.wake.openwakeword_trigger_level, 4)
 
   def test_render_parse_round_trip_sorted(self) -> None:
     rendered = render_file(
